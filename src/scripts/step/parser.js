@@ -305,7 +305,8 @@ export class StepFile {
 
     parseString() {
         const b = this.bytes;
-        let p = this.pos + 1, s = '';
+        const start = this.pos + 1;
+        let p = start, s = '', high = false;
         for (;;) {
             const c = b[p];
             if (c === undefined) break;
@@ -314,13 +315,22 @@ export class StepFile {
                 p++;
                 break;
             }
+            if (c >= 0x80) high = true;
             s += String.fromCharCode(c);
             p++;
         }
         this.pos = p;
+        // The standard wants ASCII with \X2\ escapes, but many exporters (FreeCAD, …) write raw UTF-8:
+        // read as one char per byte it became 'NorÃ©e'. Valid UTF-8 → decode it, otherwise Latin-1.
+        // (slice: TextDecoder rejects views on a SharedArrayBuffer)
+        if (high) {
+            try { s = UTF8.decode(b.slice(start, b[p - 1] === C_QUOTE ? p - 1 : p)).replace(/''/g, "'"); } catch { /* not UTF-8: keep Latin-1 */ }
+        }
         return s.indexOf('\\') >= 0 ? decodeStepString(s) : s;
     }
 }
+
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
 
 // Decodes STEP escapes: \X2\00E4\X0\ (UCS-2), \X\E4 (ISO-8859-1), \S\x, \\
 export function decodeStepString(s) {
