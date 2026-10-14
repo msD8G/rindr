@@ -114,19 +114,29 @@ class WorkerPool {
 let pool = null;
 let session = null; // { source, bytes, offsets, plan, ready: Promise }
 
-function poolSize() {
+// Without SharedArrayBuffer (no cross-origin isolation, e.g. GitHub Pages) every worker holds its own copy
+// of the file: all copies together stay within this budget – a 900 MB STEP got 6 copies before and failed
+// with "Data cannot be cloned, out of memory"
+const COPY_BUDGET = 1.5 * 2 ** 30;
+
+/** @param {number} [fileSize] STEP file size (bytes) – limits the workers when each needs a copy */
+function poolSize(fileSize = 0) {
     // ?workers=N (testing): fixed pool size
     const forced = Number(new URLSearchParams(self.location?.search || '').get('workers'));
     if (forced > 0) return Math.min(forced, 32);
     const cores = navigator.hardwareConcurrency || 4;
-    // Without SharedArrayBuffer every worker gets its own copy of the file
-    return Math.max(1, Math.min(cores, self.crossOriginIsolated ? 16 : 6));
+    if (self.crossOriginIsolated) return Math.max(1, Math.min(cores, 16));
+    const byMemory = fileSize > 0 ? Math.floor(COPY_BUDGET / fileSize) : 6;
+    return Math.max(1, Math.min(cores, 6, byMemory));
 }
 
 async function prepare(source, onStatus) {
     if (session && session.source === source) return session.ready;
     const shared = !!self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
-    pool ??= new WorkerPool(poolSize());
+    // copies per worker: pool size depends on the file size (smaller pool for large files, back for small ones)
+    const size = poolSize(shared ? 0 : source.byteLength);
+    if (pool && pool.workers.length !== size) { pool.terminate(); pool = null; }
+    pool ??= new WorkerPool(size);
     session = { source };
     session.ready = (async () => {
         let bytes = source;
@@ -138,7 +148,10 @@ async function prepare(source, onStatus) {
         onStatus(t('import.step.analyzing'));
         const [first, ...rest] = pool.workers;
         const t0 = performance.now();
-        const res = await pool.request(first, { type: 'index', bytes: shared ? bytes.buffer : source.slice().buffer, shared });
+        // without shared memory: a copy that is transferred (not cloned once more by postMessage)
+        const copy = () => source.slice().buffer;
+        const firstBytes = shared ? bytes.buffer : copy();
+        const res = await pool.request(first, { type: 'index', bytes: firstBytes, shared }, shared ? [] : [firstBytes]);
         debugLog(`[STEP] Index + structure: ${res.entityCount} entities, ${res.plan.solids.length} solids, ` +
             `${res.plan.instances.length} instances in ${(performance.now() - t0).toFixed(0)} ms ` +
             `(${pool.workers.length} workers, ${shared ? 'SharedArrayBuffer' : 'copy per worker'})`);
@@ -147,12 +160,9 @@ async function prepare(source, onStatus) {
             if (node.autoName) node.name = t(`import.step.autoName.${node.autoName[0]}`, { number: node.autoName[1] });
         }
         onStatus(t('import.step.initWorkers', { count: pool.workers.length }));
-        await Promise.all(rest.map(w => pool.request(w, {
-            type: 'init',
-            bytes: shared ? bytes.buffer : source.slice().buffer,
-            offsets: res.offsets,
-            angleUnit: res.plan.angleUnit,
-        })));
+        const init = (w, data) => pool.request(w, { type: 'init', bytes: data, offsets: res.offsets, angleUnit: res.plan.angleUnit }, shared ? [] : [data]);
+        if (shared) await Promise.all(rest.map(w => init(w, bytes.buffer)));
+        else for (const w of rest) await init(w, copy());   // one after another: at most one extra copy here at a time
         orientUpAxis(res.plan, bytes);
         session.plan = res.plan;
         return session;

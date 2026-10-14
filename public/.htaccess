@@ -47,3 +47,15 @@ AddType application/wasm .wasm
         Header set Cache-Control "public, max-age=31536000, immutable"
     </If>
 </IfModule>
+
+# Security headers (the Content-Security-Policy itself is a <meta> in index.astro – it works on GitHub Pages
+# too; here only what a <meta> cannot do). Same values in public/coi-serviceworker.js for GitHub Pages –
+# keep both in sync.
+<IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Header always set Content-Security-Policy "frame-ancestors 'none'"
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=(), fullscreen=(self), clipboard-write=(self)"
+</IfModule>

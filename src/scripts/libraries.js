@@ -22,6 +22,7 @@ export const RUNTIME = [
     { id: 'meshopt', name: 'meshoptimizer', license: 'MIT', url: 'https://github.com/zeux/meshoptimizer' },
     { id: 'fflate', name: 'fflate', license: 'MIT', url: 'https://github.com/101arrowz/fflate' },
     { id: 'webIfc', name: 'web-ifc', license: 'MPL-2.0', url: 'https://github.com/ThatOpen/engine_web-ifc' },
+    { id: 'coi', name: 'coi-serviceworker', license: 'MIT', url: 'https://github.com/gzuidhof/coi-serviceworker' },
 ];
 // assets: HDRI environment maps (public/hdr)
 export const ASSETS = [

@@ -1154,7 +1154,8 @@
             "vite": "Build-Werkzeug",
             "tailwind": "CSS-Framework",
             "openHdri": "HDRI-Maps für Licht und Hintergrund",
-            "webIfc": "IFC-Import (BIM): Geometrie und Eigenschaften"
+            "webIfc": "IFC-Import (BIM): Geometrie und Eigenschaften",
+            "coi": "Cross-Origin-Isolation auf GitHub Pages (schnelles Laden großer Dateien)"
         }
     },
     "cameraViews": {

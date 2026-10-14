@@ -29,7 +29,7 @@ Drop a CAD model, a mesh, a BIM file or a Gaussian splat into the window and get
 - **Output** – image export (incl. transparent PNG), save/load whole scenes, and **AI rendering**: send the frame plus your material names to an image model for a photoreal take.
 - English and German UI.
 
-**Browser:** needs WebGPU – current Chrome or Edge recommended. For full speed on large models, serve with cross-origin isolation (COOP/COEP headers, see `public/.htaccess`); without it everything still works, just with more memory use.
+**Browser:** needs WebGPU – current Chrome or Edge recommended. Large models load in parallel with shared memory (cross-origin isolation): via COOP/COEP headers on your own server (`public/.htaccess`), on static hosting like GitHub Pages a small service worker takes care of it.
 
 ## Built with
 
@@ -59,6 +59,7 @@ RINDR is built on great open-source projects. Thanks to everyone who contributes
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Meshopt compression (glTF) | MIT |
 | [fflate](https://github.com/101arrowz/fflate) | Decompression of FBX data | MIT |
 | [web-ifc](https://github.com/ThatOpen/engine_web-ifc) | IFC import (BIM): geometry and properties | MPL-2.0 |
+| [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) | Cross-origin isolation on GitHub Pages (fast loading of large files) | MIT |
 
 ### HDRI environments
 

@@ -19,12 +19,39 @@ const abs = (path) => Astro.site ? new URL(base + path, Astro.site).href : base 
 const pageUrl = abs('');
 const ogImage = abs('og-image.png');
 
+// Content-Security-Policy as <meta> (works on GitHub Pages too; header-only parts – frame-ancestors,
+// X-Frame-Options, Permissions-Policy … – come from public/.htaccess resp. public/coi-serviceworker.js).
+// Only in the production build: the dev server needs its HMR websocket and inline scripts.
+// wasm-unsafe-eval: WebAssembly (Draco, Basis, web-ifc, denoiser); worker blob: Draco/KTX2 workers;
+// connect googleapis: AI rendering (KI.endpoint in config.js); style unsafe-inline: <style> in page + logo SVG.
+const CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "worker-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' data: blob:",
+    "connect-src 'self' data: blob: https://generativelanguage.googleapis.com",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'none'",
+].join('; ');
+
 ---
 
 <!doctype html>
 <html lang="de">
     <head>
         <meta charset="UTF-8" />
+        {import.meta.env.PROD && <meta http-equiv="Content-Security-Policy" content={CSP} />}
+        <meta name="referrer" content="strict-origin-when-cross-origin" />
+        <!-- Cross-origin isolation where the server cannot send COOP/COEP (GitHub Pages): coi-serviceworker sets
+             the headers itself (one reload on the first visit). Already isolated (own server via .htaccess, dev
+             server) → it does nothing. Messages only with ?debug. -->
+        <script is:inline src={`${base}coi-config.js`}></script>
+        <script is:inline src={`${base}coi-serviceworker.js`}></script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title data-i18n="page.title">{tr('page.title')}</title>
         <meta name="description" content={tr('page.description')} />
