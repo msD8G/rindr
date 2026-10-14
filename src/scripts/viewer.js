@@ -2596,8 +2596,11 @@ function checkPathTracingScene() {
 }
 
 // Build the path tracing scene as soon as it is enabled and a model is loaded
+// Not while a model is loading: STEP solids arrive one after another (streaming) – switching to HQ during the
+// import built the path tracer with the solids so far, later ones never got into its BVH (parts missing,
+// could not be shown again). runLoad() calls this right after each load instead.
 async function updatePathTracingScene() {
-    if (!pathTracing.enabled || !rootGroup || pathTracing.ready || pathTracing.building) return;
+    if (!pathTracing.enabled || !rootGroup || pathTracing.ready || pathTracing.building || loading) return;
     const version = sceneVersion;
     try {
         await pathTracing.setScene(scene, camera);
@@ -3221,6 +3224,7 @@ function runLoad(kind) {
                 await loading;
                 loading = null;
                 loadAbort = null;
+                updatePathTracingScene();   // blocked while loading (see there)
                 continue;
             }
             const next = pending;
@@ -3233,6 +3237,7 @@ function runLoad(kind) {
             await loading;
             loading = null;
             loadAbort = null;
+            updatePathTracingScene();   // blocked while loading (see there)
         }
         // scene state waiting for a model (scene dropped without a model)
         if (pendingState && matchesModel(pendingState, model) && rootGroup) {
