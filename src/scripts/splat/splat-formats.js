@@ -57,7 +57,10 @@ export class SplatBuilder {
         this.shCoeffs = shCoeffs;
         this.shWords = Math.ceil(shCoeffs * 3 / 4);
         this.shRange = 1;
-        // shared: the main thread shows the splats while they are still being read (progressive loading)
+        // shared: the main thread shows the splats while they are still being read (progressive loading).
+        // Only with cross-origin isolation – GitHub Pages sends no COOP/COEP, SharedArrayBuffer is not defined
+        // there (viewer.js asks for shared: true; SOG failed with "SharedArrayBuffer is not defined")
+        shared = !!shared && typeof SharedArrayBuffer !== 'undefined' && globalThis.crossOriginIsolated !== false;
         const Buffer = shared ? SharedArrayBuffer : ArrayBuffer;
         this.shared = shared;
         this.a = buffers?.a || new Uint32Array(new Buffer(count * 16));
