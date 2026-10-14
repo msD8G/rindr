@@ -1,0 +1,220 @@
+---
+import '../styles/global.css';
+import fs from 'node:fs';
+import de from '../i18n/de_de.json';
+import { formatHtml } from '../scripts/i18n.js';
+import Logo from '../assets/rindr.svg';   // shown white via the #logo-white filter (see the brand line)
+
+// German default texts rendered at build time (no flash); viewer.js calls applyDom() for other languages
+const tr = (k) => k.split('.').reduce((n, p) => n?.[p], de) ?? k;
+
+// HDRIs offered in the environment panel: all .hdr/.exr files from public/hdr
+const hdris = fs.existsSync('public/hdr')
+    ? fs.readdirSync('public/hdr').filter(f => /\.(hdr|exr)$/i.test(f)).sort()
+    : [];
+
+---
+
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title data-i18n="page.title">{tr('page.title')}</title>
+        <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <meta name="apple-mobile-web-app-title" content="RINDR" />
+        <link rel="manifest" href="/site.webmanifest" />
+        <style is:global>
+            /* UI hidden (button in the view-mode bar, key U): the bar stays, subdued */
+            /* Panels slide smoothly out of the window (data-ui = direction) and back in; afterwards
+               invisible so nothing hidden catches clicks (visibility only after sliding out) */
+            [data-ui] {
+                transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, visibility 0s linear 0s;
+            }
+            body.ui-hidden [data-ui] {
+                opacity: 0;
+                visibility: hidden;
+                transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease 0.1s, visibility 0s linear 0.4s;
+            }
+            body.ui-hidden [data-ui='left'] { transform: translateX(calc(-100% - 2rem)); }
+            body.ui-hidden [data-ui='right'] { transform: translateX(calc(100% + 2rem)); }
+            body.ui-hidden [data-ui='down'] { transform: translateY(calc(100% + 2rem)); }
+            @media (prefers-reduced-motion: reduce) {
+                [data-ui], body.ui-hidden [data-ui] { transition: none; }
+            }
+            #view-mode { transition: opacity 0.2s; }
+            body.ui-hidden #view-mode:not(:hover) { opacity: 0.35; }
+            /* Scrollbars: thin, light grey, rounded, no background (matching the panels).
+               Chromium/Safari via ::-webkit-scrollbar; Firefox only knows scrollbar-width/-color.
+               Set scrollbar-color for Firefox only – otherwise Chromium ignores ::-webkit-scrollbar. */
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+            ::-webkit-scrollbar-thumb {
+                background-color: rgb(255 255 255 / 0.18);
+                border: 2px solid transparent;
+                border-radius: 9999px;
+                background-clip: padding-box;
+            }
+            ::-webkit-scrollbar-thumb:hover { background-color: rgb(255 255 255 / 0.32); }
+            ::-webkit-scrollbar-button { display: none; }
+            @-moz-document url-prefix() {
+                * { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.22) transparent; }
+            }
+            /* Number fields: the browser's spin buttons (grey box) replaced by two slim arrows without background,
+               shown on hover/focus; clicking the upper/lower half still steps the value (Chromium/Safari).
+               Firefox: no spin buttons (cannot be styled) – dragging the number replaces them. */
+            input[type='number']::-webkit-inner-spin-button,
+            input[type='number']::-webkit-outer-spin-button {
+                -webkit-appearance: none;
+                appearance: none;
+                margin: 0 0 0 2px;
+                width: 8px;
+                align-self: stretch;
+                background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 14'%3E%3Cpath d='M1.5 5.5L4 3l2.5 2.5M1.5 8.5L4 11l2.5-2.5' fill='none' stroke='white' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 8px 14px;
+                opacity: 0;
+                cursor: pointer;
+                transition: opacity 0.15s;
+            }
+            input[type='number']:hover::-webkit-inner-spin-button,
+            input[type='number']:focus::-webkit-inner-spin-button { opacity: 0.55; }
+            input[type='number']::-webkit-inner-spin-button:hover { opacity: 0.9; }
+            input[type='number'] { -moz-appearance: textfield; }
+        </style>
+    </head>
+    <body class="m-0 overflow-hidden bg-neutral-900 font-sans">
+        <div id="viewport" class="h-dvh w-dvw"></div>
+
+        <div
+            id="loading"
+            data-i18n="page.loading"
+            class="pointer-events-none absolute top-1/2 left-1/2 w-max max-w-[90vw] -translate-x-1/2 -translate-y-1/2 text-center text-xl text-white transition-opacity duration-500"
+        >{tr('page.loading')}</div>
+
+        <div data-ui="left" class="pointer-events-none absolute top-5 left-5 flex max-h-[calc(100dvh-11rem)] w-72 flex-col gap-3">
+            <div
+                id="scene-graph"
+                hidden
+                class="pointer-events-auto flex min-h-0 flex-col rounded-lg bg-black/60 text-xs text-white/90 backdrop-blur-sm"
+            >
+                <!-- header (not collapsible – customer feedback: nobody should close it by accident) -->
+                <div class="flex w-full shrink-0 items-center justify-between gap-2 px-3 py-2 text-left font-medium">
+                    <span data-i18n="page.sceneGraph">{tr('page.sceneGraph')}</span>
+                    <span data-tree-count class="tabular-nums text-white/50"></span>
+                </div>
+                <div data-tree-list class="min-h-0 overflow-auto px-1 pb-2 select-none"></div>
+            </div>
+
+            <div
+                id="properties"
+                hidden
+                class="pointer-events-auto shrink-0 rounded-lg bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur-sm"
+            ></div>
+        </div>
+
+        <div id="view-mode"></div>
+        <!-- play bar for animated models (animation.js), above the toolbar -->
+        <div id="playbar" hidden></div>
+        <!-- Setup menu (gear in the bar, setup-menu.js): sections left, options right, centred -->
+        <div
+            id="setup-menu"
+            class="pointer-events-none fixed z-20 flex h-[min(21.5rem,60dvh)] w-[34rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg bg-black/60 text-xs text-white/90 opacity-0 shadow-2xl backdrop-blur-sm transition-[opacity,transform] duration-200"
+        ></div>
+
+        <div data-ui="right" class="pointer-events-none absolute top-5 right-5 flex max-h-[calc(100dvh-5rem)] w-80 flex-col gap-3">
+            <div
+                id="materials"
+                class="pointer-events-auto flex min-h-0 flex-col rounded-lg bg-black/60 text-xs text-white/90 backdrop-blur-sm"
+            ></div>
+            <div id="debug-stats" hidden></div>
+        </div>
+
+        <div
+            id="node-editor"
+            data-ui="down"
+            hidden
+            class="absolute inset-x-5 bottom-5 z-10 flex h-[45dvh] flex-col overflow-hidden rounded-lg bg-neutral-900/95 text-xs text-white/90 shadow-2xl ring-1 ring-white/10 backdrop-blur-sm"
+        ></div>
+
+        <div
+            id="progress"
+            hidden
+            class="pointer-events-none absolute bottom-10 left-5 w-72 rounded-lg bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur-sm"
+        >
+            <div data-label class="mb-1.5"></div>
+            <div class="h-1 overflow-hidden rounded bg-white/15">
+                <div data-bar class="h-full w-0 rounded bg-amber-400 transition-[width] duration-200"></div>
+            </div>
+        </div>
+
+        <!-- drop area: one zone (nothing loaded) or two – left "replace models", right "add to the scene" -->
+        <div id="drop-overlay" hidden class="pointer-events-none absolute inset-3 z-20 flex gap-3 text-white">
+            <div
+                data-drop-zone="replace"
+                class="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-sky-400/80 bg-black/55 p-6 text-center backdrop-blur-sm transition-colors"
+            >
+                <div data-drop-single class="flex flex-col items-center gap-2">
+                    <div class="text-lg font-medium" data-i18n="page.drop.title">{tr('page.drop.title')}</div>
+                    <div class="text-sm text-white/60" data-i18n="page.drop.hint">{tr('page.drop.hint')}</div>
+                    <div class="text-sm text-white/60" data-i18n-html="page.drop.addHint" set:html={formatHtml(tr('page.drop.addHint'))}></div>
+                </div>
+                <div data-drop-relink hidden class="flex flex-col items-center gap-2">
+                    <div class="text-lg font-medium" data-i18n="page.drop.relinkTitle">{tr('page.drop.relinkTitle')}</div>
+                    <div class="text-sm text-white/60" data-i18n="page.drop.relinkHint">{tr('page.drop.relinkHint')}</div>
+                </div>
+                <div data-drop-split hidden class="flex flex-col items-center gap-2">
+                    <div class="text-lg font-medium" data-i18n="page.drop.replaceTitle">{tr('page.drop.replaceTitle')}</div>
+                    <div class="text-sm text-white/60" data-i18n="page.drop.replaceHint">{tr('page.drop.replaceHint')}</div>
+                    <div data-drop-splat hidden class="text-sm text-white/60" data-i18n="page.drop.splatReplaceHint">{tr('page.drop.splatReplaceHint')}</div>
+                </div>
+            </div>
+            <div
+                data-drop-zone="add"
+                hidden
+                class="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-sky-400/80 bg-black/55 p-6 text-center backdrop-blur-sm transition-colors"
+            >
+                <div class="text-lg font-medium" data-i18n="page.drop.addTitle">{tr('page.drop.addTitle')}</div>
+                <div class="text-sm text-white/60" data-i18n="page.drop.addSplitHint">{tr('page.drop.addSplitHint')}</div>
+                <div class="text-xs text-white/45" data-i18n="page.drop.splatNote">{tr('page.drop.splatNote')}</div>
+            </div>
+        </div>
+
+        <div
+            id="pt-status"
+            data-ui="left"
+            class="pointer-events-none absolute bottom-10 left-5 hidden w-64 rounded-lg bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur-sm"
+        >
+            <div class="mb-1.5 flex items-center justify-between gap-2">
+                <span class="flex items-center gap-1.5">
+                    <span id="pt-status-dot" class="inline-block size-2 rounded-full bg-sky-400"></span>
+                    <span id="pt-status-label" data-i18n="page.ptStatus">{tr('page.ptStatus')}</span>
+                </span>
+                <span id="pt-status-value" class="tabular-nums text-white/60"></span>
+            </div>
+            <div class="h-1 overflow-hidden rounded bg-white/15">
+                <div id="pt-status-bar" class="h-full w-0 rounded bg-sky-400"></div>
+            </div>
+            <div id="pt-status-detail" class="mt-1.5 text-white/50"></div>
+        </div>
+
+
+        <script is:inline id="hdr-list" type="application/json" set:html={JSON.stringify(hdris).replaceAll("<", "\\u003c")}></script>
+        <script>
+            import "../scripts/viewer.js";
+        </script>
+        <!-- brand line bottom left (slides out with the UI); progress/PT status sit above it -->
+        <div data-ui="left" class="pointer-events-none absolute bottom-3 left-5 flex items-center gap-1.5 text-[11px] tracking-wide text-white select-none">
+            <!-- logo white: filled (dark) areas → opaque white, light details (eyes, spots) → transparent;
+                 alpha = alpha − luminance, colour = white (the SVG file stays as exported) -->
+            <svg width="0" height="0" class="absolute" aria-hidden="true">
+                <filter id="logo-white" color-interpolation-filters="sRGB">
+                    <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -0.2126 -0.7152 -0.0722 1 0" />
+                </filter>
+            </svg>
+            <Logo class="size-6 shrink-0 [filter:url(#logo-white)_drop-shadow(0_1px_2px_rgb(0_0_0/0.45))]" aria-hidden="true" />
+            <span class="opacity-50" data-i18n-html="page.brand" set:html={formatHtml(tr('page.brand'))}></span>
+        </div>
+    </body>
+</html>

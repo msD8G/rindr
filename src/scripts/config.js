@@ -1,0 +1,86 @@
+// Central default settings of the viewer – adjust here.
+// The values apply at startup; in the UI (Settings → Path tracing) they can be changed afterwards
+// as usual, a saved scene state overrides them as well.
+
+export const PATHTRACING = {
+    enabled: false,             // path tracing on at startup (= HQ view instead of Default; WebGPU only)
+    bounces: 8,                 // light paths: number of reflections/refractions per path (GUI: 1–20)
+    maxSamples: 32,             // samples per pixel, then stop + denoise (GUI: 1–256)
+    renderScale: 1,           // resolution relative to the window (0.25–1); < 1 is upscaled via FSR
+    filterGlossyFactor: 1,      // glossy filter 0–1: dampens glossy noise (fireflies), slightly softer
+    denoise: true,              // OIDN denoising after maxSamples
+    upscale: true,              // FSR upscaling (only useful with renderScale < 1)
+    sharpness: 1,               // FSR sharpness 0–2
+
+    // While orbiting/zooming (HQ): keep path tracing, but heavily reduced – instead of the raster preview
+    motion: {
+        enabled: true,          // false = raster preview while orbiting
+        renderScale: 0.35,      // resolution relative to the window (FSR upscales)
+        bounces: 3,             // light paths while orbiting
+        samples: 1,             // samples per pixel and frame (more = calmer, but slower)
+        holdMs: 250,            // stays reduced this long after release (mouse wheel: no switching per notch)
+    },
+
+    // Technical (benchmark with ?bench in the URL)
+    megakernel: true,           // megakernel instead of wavefront – ~4× faster on the tested GPU
+    frameBudget: 1_000_000,     // paths per pass (library: 250 000)
+    countInterval: 200,         // ms between two sample counts for the status display (GPU readback)
+};
+
+// Materials: editing (parameters, node editor, rename, new, copy) hidden for now –
+// list (scene/library), drag & drop, assign, select objects, delete and import/export remain.
+// Existing node graphs (e.g. from imported materials or scenes) are still applied.
+export const MATERIALS = {
+    editing: false,
+    importExport: false,   // JSON import/export buttons in the material panel (comes back later)
+};
+
+// Opening large models (STEP): protection against running out of memory. Before tessellating, the
+// triangle count is estimated from a sample of the faces (unique triangles – instances share geometry).
+export const IMPORT = {
+    triangleBudget: 10_000_000,   // opening: estimate above this → quality automatically coarser (down to "coarse")
+    triangleLimit: 30_000_000,    // hard limit: not started beyond it (estimate) or aborted while tessellating –
+                                  // opening then retries one level coarser, a quality change keeps the old model
+    instancing: true,             // identical solids that the file does not declare as reused share one geometry
+                                  // (shape comparison after tessellating, shape-match.js) – saves RAM/GPU memory
+};
+
+// Raster view (Basic/Default): meshes with the same geometry + material are drawn as one InstancedMesh
+// (render-batcher.js) – large assemblies need hundreds instead of thousands of draw calls. Test: ?batching=0
+export const RASTER = {
+    batching: true,
+};
+
+// Gaussian splats (.ply / .sog, splat/): memory protection for the spherical harmonics (view-dependent
+// colour). Degree 3 costs 48 bytes per splat on the GPU – large scenes are reduced to a lower degree so that
+// the SH data stays within the budget (13 M splats: degree 2). Positions/shape/colour: 32 bytes per splat.
+export const SPLATS = {
+    shDegree: 3,          // highest SH degree that is kept (0 = no view-dependent colour)
+    shBudgetMB: 512,      // GPU memory for the SH data
+    unitScale: 1000,      // file units → mm (3DGS scenes are roughly in metres)
+    // after loading the camera slowly circles the scene until the user takes over: seconds per turn
+    // (object: around it, room: panning on the spot); 0 = off
+    autoRotate: { object: 40, indoor: 60 },
+    // reveal while loading: shape ('sphere' centre → out, 'plane' bottom → up, 'screen' circle on screen), edge band
+    // (share of the robust radius), pulse in the band: glow (brightening), start size (× own size, at least
+    // `minStartSize` × robust radius per axis – fine scans have tiny splats, 2× tiny stayed tiny), glow colour
+    // (null = own colour)
+    reveal: { mode: 'sphere', band: 0.25, glow: 0.5, startSize: 1.5, minStartSize: 0.0, glowColor: '#ffffff' },
+};
+
+// "About" in the settings menu (version comes from package.json)
+export const ABOUT = {
+    author: 'Marco Schrenk',                          // author name
+    email: 'mail@marco-schrenk.de',
+};
+
+// AI rendering (ki-gemini.js): the browser calls Gemini directly with the user's own key (settings → AI).
+// Google renames models often – see https://ai.google.dev/gemini-api/docs/image-generation;
+// the model can also be changed in the settings (per browser).
+export const KI = {
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/interactions',
+    model: 'gemini-nano-banana-2.1',
+    size: '2K',                       // default output resolution
+    sizes: ['1K', '2K', '4K'],
+    keyUrl: 'https://aistudio.google.com/apikey',   // where to get a key (link in the settings)
+};

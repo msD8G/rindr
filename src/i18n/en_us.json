@@ -1,0 +1,1318 @@
+{
+    "language": {
+        "name": "English"
+    },
+    "tessellation": {
+        "quality": {
+            "coarse": "Coarse",
+            "medium": "Medium",
+            "fine": "Fine",
+            "veryFine": "Very fine"
+        }
+    },
+    "import": {
+        "step": {
+            "analyzing": "Analysing STEP structure...",
+            "initWorkers": "Initialising {count} workers...",
+            "tessellating": "Tessellating: {faces} / {totalFaces} faces · {solids} / {totalSolids} solids",
+            "buildingBvh": "Building BVH... {done} / {total}",
+            "fileTooLong": "STEP file longer than declared",
+            "workerError": "Worker error",
+            "autoName": {
+                "solid": "Solid {number}",
+                "model": "Model"
+            },
+            "estimating": "Estimating model size …"
+        },
+        "mesh": {
+            "reading": "Reading {name}...",
+            "orienting": "Orienting faces...",
+            "buildingGeometries": "Building geometries...",
+            "noFaces": "The file contains no faces",
+            "gltfNoScene": "glTF without a scene",
+            "unnamedMaterial": "Material {number}",
+            "defaultMaterial": "Default",
+            "unnamedMesh": "Mesh"
+        }
+    },
+    "materials": {
+        "panel": {
+            "title": "Materials",
+            "import": "Import",
+            "importTitle": "Load materials from JSON",
+            "export": "Export",
+            "exportTitle": "Save the scene's materials as JSON",
+            "exportFileName": "materials.json",
+            "tabs": {
+                "scene": "Scene",
+                "library": "Library"
+            },
+            "new": "+ New",
+            "newTitle": "New material",
+            "empty": "No materials yet",
+            "selectionBadge": "Selection",
+            "stepPlaceholderHint": "Placeholder from the STEP colour – replace with a library material",
+            "importedHint": "Material from the imported file",
+            "libraryHint": "Drag: onto an object or a Scene Graph entry · Double-click: add to the scene",
+            "id": "ID {id}",
+            "assignSelection": "Assign to selection",
+            "selectObjects": "Select objects",
+            "selectObjectsTitle": "Select all objects with this material",
+            "nodes": "Nodes…",
+            "duplicate": "Duplicate",
+            "delete": "Delete",
+            "deleteInUse": "Still in use",
+            "deleteTitle": "Remove material",
+            "importedTextures": "Textures from the file: {names} – in the node graph as “Imported texture”. When connected directly, the values below are multiplied with the texture.",
+            "graphControlled": "Controlled by the node graph – the values below apply to unconnected inputs.",
+            "importFailed": "Import failed: {message}",
+            "importErrorTitle": "Import failed",
+            "merge": "Merge identical",
+            "mergeTitle": "Merge identical materials (same name, settings and textures – e.g. the same model loaded twice) into one each"
+        },
+        "maps": {
+            "map": "Colour",
+            "normalMap": "Normal",
+            "roughnessMap": "Roughness",
+            "metalnessMap": "Metalness",
+            "emissiveMap": "Emission",
+            "aoMap": "AO",
+            "alphaMap": "Alpha",
+            "bumpMap": "Bump",
+            "transmissionMap": "Transmission",
+            "clearcoatMap": "Clearcoat",
+            "clearcoatRoughnessMap": "Clearcoat roughness",
+            "clearcoatNormalMap": "Clearcoat normal",
+            "thicknessMap": "Thickness",
+            "sheenColorMap": "Sheen",
+            "sheenRoughnessMap": "Sheen roughness",
+            "specularIntensityMap": "Specular",
+            "specularColorMap": "Specular colour",
+            "iridescenceMap": "Iridescence"
+        },
+        "params": {
+            "color": "Colour",
+            "metalness": "Metalness",
+            "roughness": "Roughness",
+            "specularIntensity": "Specular",
+            "clearcoat": "Clearcoat",
+            "clearcoatRoughness": "Clearcoat roughness",
+            "transmission": "Transmission",
+            "ior": "IOR",
+            "thickness": "Thickness",
+            "attenuationColor": "Tint",
+            "attenuationDistance": "Tint distance",
+            "sheen": "Sheen",
+            "sheenColor": "Sheen colour",
+            "sheenRoughness": "Sheen roughness",
+            "iridescence": "Iridescence",
+            "emissive": "Emissive colour",
+            "emissiveIntensity": "Emissive intensity",
+            "opacity": "Opacity"
+        },
+        "paramGroups": {
+            "base": "Base",
+            "clearcoat": "Clearcoat",
+            "glass": "Glass",
+            "sheen": "Sheen",
+            "effects": "Effects"
+        },
+        "categories": {
+            "metal": "Metal",
+            "plastic": "Plastic",
+            "paint": "Paint",
+            "glass": "Glass",
+            "other": "Other"
+        },
+        "presets": {
+            "metal-chrome": "Chrome",
+            "metal-alu-polished": "Aluminium polished",
+            "metal-alu-brushed": "Aluminium brushed",
+            "metal-alu-anodized-black": "Aluminium anodised black",
+            "metal-steel": "Stainless steel",
+            "metal-steel-dark": "Steel dark",
+            "metal-cast-iron": "Cast iron",
+            "metal-gold": "Gold",
+            "metal-copper": "Copper",
+            "metal-brass": "Brass",
+            "metal-titanium": "Titanium",
+            "plastic-white-gloss": "Plastic white glossy",
+            "plastic-black-gloss": "Plastic black glossy",
+            "plastic-black-matte": "Plastic black matte",
+            "plastic-grey-matte": "Plastic grey matte",
+            "plastic-red": "Plastic red",
+            "plastic-blue": "Plastic blue",
+            "plastic-yellow": "Plastic yellow",
+            "rubber-black": "Rubber black",
+            "paint-car-red": "Car paint red",
+            "paint-car-blue-metallic": "Metallic paint blue",
+            "paint-car-silver": "Metallic paint silver",
+            "paint-powder-black": "Powder coat black",
+            "paint-powder-white": "Powder coat white",
+            "glass-clear": "Glass clear",
+            "glass-frosted": "Glass frosted",
+            "glass-tinted": "Glass tinted",
+            "plastic-clear": "Plastic transparent",
+            "ceramic-white": "Ceramic white",
+            "emissive-white": "Emissive white"
+        },
+        "defaultNames": {
+            "material": "Material",
+            "stepColor": "STEP {color}",
+            "stepDefault": "STEP Default",
+            "new": "New material",
+            "copy": "{name} copy"
+        },
+        "undo": {
+            "create": "Create material",
+            "delete": "Delete material",
+            "edit": "Edit material",
+            "editGraph": "Edit node graph",
+            "rename": "Rename material",
+            "import": "Import materials"
+        },
+        "errors": {
+            "notMaterialFile": "Not a material file"
+        },
+        "merge": {
+            "none": "No identical materials found – materials with the same name differ in settings or textures",
+            "done": {
+                "one": "{count} material merged",
+                "other": "{count} materials merged"
+            },
+            "undo": "Merge identical materials"
+        }
+    },
+    "nodeEditor": {
+        "title": "Node editor – {name}",
+        "close": "Close",
+        "closeTitle": "Close (Esc)",
+        "addNode": "+ {label}",
+        "deleteNode": "Delete node",
+        "portTypes": {
+            "color": "Colour",
+            "float": "Value"
+        },
+        "missingTexture": "(missing)",
+        "importTextureTitle": "Texture from the imported file",
+        "replaceImage": "Replace image…",
+        "chooseImage": "Choose image…"
+    },
+    "nodes": {
+        "categories": {
+            "input": "Input",
+            "texture": "Texture",
+            "color": "Colour",
+            "value": "Value"
+        },
+        "types": {
+            "output": {
+                "label": "Material output",
+                "inputs": {
+                    "color": "Colour",
+                    "metalness": "Metalness",
+                    "roughness": "Roughness",
+                    "clearcoat": "Clearcoat",
+                    "clearcoatRoughness": "Clearcoat roughness",
+                    "transmission": "Transmission",
+                    "sheen": "Sheen",
+                    "emissive": "Emissive colour",
+                    "normal": "Normal map",
+                    "ao": "Ambient occlusion",
+                    "height": "Bump (height)"
+                },
+                "params": {
+                    "reliefStrength": "Bump strength"
+                }
+            },
+            "value": {
+                "label": "Value",
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "value": "Value"
+                }
+            },
+            "color": {
+                "label": "Colour",
+                "outputs": {
+                    "color": "Colour"
+                },
+                "params": {
+                    "color": "Colour"
+                }
+            },
+            "image": {
+                "label": "Image texture",
+                "outputs": {
+                    "color": "Colour",
+                    "value": "Brightness"
+                },
+                "params": {
+                    "image": "Image",
+                    "scale": "Repeat"
+                }
+            },
+            "importMap": {
+                "label": "Imported texture",
+                "outputs": {
+                    "color": "Colour",
+                    "r": "R",
+                    "g": "G",
+                    "b": "B",
+                    "a": "A"
+                },
+                "params": {
+                    "map": "Texture"
+                }
+            },
+            "noise": {
+                "label": "Noise",
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "scale": "Size",
+                    "detail": "Detail",
+                    "stretch": "Stretch"
+                }
+            },
+            "gradient": {
+                "label": "Gradient",
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "axis": "Direction",
+                    "scale": "Repeat"
+                },
+                "options": {
+                    "axis": {
+                        "u": "U",
+                        "v": "V"
+                    }
+                }
+            },
+            "checker": {
+                "label": "Checker",
+                "inputs": {
+                    "a": "Colour A",
+                    "b": "Colour B"
+                },
+                "outputs": {
+                    "color": "Colour",
+                    "value": "Mask"
+                },
+                "params": {
+                    "scale": "Squares",
+                    "a": "Colour A",
+                    "b": "Colour B"
+                }
+            },
+            "mix": {
+                "label": "Mix",
+                "inputs": {
+                    "a": "A",
+                    "b": "B",
+                    "factor": "Factor"
+                },
+                "outputs": {
+                    "color": "Colour"
+                },
+                "params": {
+                    "a": "A",
+                    "b": "B",
+                    "factor": "Factor"
+                }
+            },
+            "ramp": {
+                "label": "Colour ramp",
+                "inputs": {
+                    "t": "Value"
+                },
+                "outputs": {
+                    "color": "Colour"
+                },
+                "params": {
+                    "a": "From",
+                    "b": "To",
+                    "t": "Value"
+                }
+            },
+            "math": {
+                "label": "Math",
+                "inputs": {
+                    "a": "A",
+                    "b": "B"
+                },
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "op": "Operation",
+                    "a": "A",
+                    "b": "B"
+                },
+                "options": {
+                    "op": {
+                        "add": "A + B",
+                        "sub": "A − B",
+                        "mul": "A × B",
+                        "pow": "A ^ B",
+                        "min": "Minimum",
+                        "max": "Maximum"
+                    }
+                }
+            },
+            "remap": {
+                "label": "Range",
+                "inputs": {
+                    "value": "Value"
+                },
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "value": "Value",
+                    "from": "From",
+                    "to": "To"
+                }
+            },
+            "invert": {
+                "label": "Invert",
+                "inputs": {
+                    "value": "Value"
+                },
+                "outputs": {
+                    "value": "Value"
+                },
+                "params": {
+                    "value": "Value"
+                }
+            }
+        }
+    },
+    "sceneGraph": {
+        "solids": {
+            "one": "{count} solid",
+            "other": "{count} solids"
+        },
+        "unnamed": "(unnamed)",
+        "model": "Model",
+        "surfaceGroup": "Surface group {n}",
+        "surfaceGroupOf": "{solid} · Surface group {n}",
+        "selectionParts": {
+            "one": "{count} part",
+            "other": "{count} parts"
+        },
+        "allParts": "All parts ({count})",
+        "visible": "Visible",
+        "materialTitle": "Material: {name}",
+        "settings": "Open settings",
+        "views": {
+            "one": "{count} view",
+            "other": "{count} views"
+        },
+        "missingModel": "File “{name}” is missing – relink it in the asset window",
+        "missingTextures": {
+            "one": "{count} texture missing – see Assets",
+            "other": "{count} textures missing – see Assets"
+        },
+        "morphTargets": {
+            "one": "{count} morph target – sliders in the properties",
+            "other": "{count} morph targets – sliders in the properties"
+        }
+    },
+    "properties": {
+        "kind": {
+            "selection": "Selection",
+            "model": "Model",
+            "node": "Part",
+            "surface": "Surface group",
+            "light": "Light",
+            "environment": "Environment",
+            "camera": "Camera",
+            "folder": "Group",
+            "slicer": "Section",
+            "view": "View",
+            "views": "Views",
+            "missing": "Missing"
+        },
+        "surface": {
+            "hint": "Faces of a solid that have their own colour in the file. Drag a material here or use “Assign to selection”; in the 3D view, drag a material onto the face while holding Alt. Move/rotate via the part."
+        },
+        "selection": {
+            "parts": {
+                "one": "{count} part",
+                "other": "{count} parts"
+            },
+            "partsWithGroups": {
+                "one": "{count} part ({groups} surface groups)",
+                "other": "{count} parts ({groups} surface groups)"
+            },
+            "hint": "{parts} – “Assign to selection” replaces the material on all of them. Shift+click: add/remove, Ctrl+A: all, F: frame, H: hide.",
+            "noTransform": "Move/rotate only works on whole parts, not on a material selection."
+        },
+        "transform": {
+            "hiddenHint": "Hidden – show it first to move, rotate or scale it.",
+            "translate": "Move",
+            "rotate": "Rotate",
+            "scale": "Scale",
+            "modeTitle": {
+                "translate": "Move (W)",
+                "rotate": "Rotate (E)",
+                "scale": "Scale (R)"
+            },
+            "reset": "Reset",
+            "position": "Position",
+            "rotation": "Rotation °",
+            "scaling": "Scale"
+        },
+        "explode": {
+            "label": "Explode"
+        },
+        "quality": {
+            "label": "Quality",
+            "title": "Re-tessellate only this part (with its sub-parts)",
+            "inherited": "As parent ({quality})"
+        },
+        "light": {
+            "intensity": "Intensity",
+            "color": "Colour",
+            "undo": {
+                "intensity": "Light intensity",
+                "color": "Light colour"
+            }
+        },
+        "environment": {
+            "intensity": "Intensity",
+            "lightBoost": "Light boost",
+            "rotation": "Rotation °",
+            "background": "Show background",
+            "backgroundTitle": "Show the HDRI as background",
+            "ground": "Ground shadow",
+            "groundTitle": "Model casts ground shadow",
+            "hdri": "HDRI",
+            "hdriTitle": "HDRI from the hdr folder",
+            "studio": "Studio (procedural)",
+            "loading": "Loading HDRI …",
+            "decoding": "Decoding HDRI …",
+            "loadingPercent": "Loading HDRI … {percent} %",
+            "error": "Error: {message}",
+            "undo": {
+                "intensity": "Environment intensity",
+                "rotation": "Rotate environment",
+                "background": "HDRI background",
+                "ground": "Ground shadow",
+                "hdri": "Change HDRI",
+                "dome": "Flatten ground",
+                "size": "Floor size",
+                "height": "HDRI height",
+                "floorHeight": "Floor height",
+                "sphere": "Sphere size",
+                "blend": "Floor transition",
+                "softness": "Floor softness",
+                "lightBoost": "Light boost"
+            },
+            "dome": "Flatten ground",
+            "domeTitle": "Flat HDRI floor, follows zoom",
+            "size": "Size",
+            "height": "HDRI height",
+            "floorHeight": "Floor height",
+            "sphere": "Sphere",
+            "blend": "Transition",
+            "softness": "Softness"
+        },
+        "slicer": {
+            "axis": "Axis",
+            "axisTitle": "Section perpendicular to the {axis} axis",
+            "flip": "Flip side",
+            "capColor": "Section colour",
+            "inactiveHint": "Tick the box in the Scene Graph to activate.",
+            "activeHint": "While the section is active, raster view only (no path tracing).",
+            "undo": {
+                "flip": "Flip section side",
+                "capColor": "Section colour"
+            }
+        },
+        "camera": {
+            "fov": "Field of view °",
+            "fovTitle": "Field of view (vertical). Above {limit}° the picture turns smoothly into a fisheye.",
+            "undo": {
+                "fov": "Field of view"
+            },
+            "position": "Position",
+            "rotation": "Rotation °",
+            "rollHint": "Roll: tilts the picture about the view axis (mouse orbiting stays level). Numbers can also be dragged sideways."
+        },
+        "dof": {
+            "label": "DOF",
+            "title": "Depth of field (HQ only)",
+            "focusDistance": "Focus mm",
+            "pick": "Pick",
+            "pickTitle": "The next click on the model sets the focus plane (Esc cancels)",
+            "target": "Pivot",
+            "targetTitle": "Put the focus plane through the camera pivot",
+            "focus": "Focus",
+            "autoFocus": "Autofocus",
+            "autoFocusTitle": "Focus plane follows the pivot",
+            "fStop": "Aperture f/",
+            "round": "Round",
+            "bladesCount": {
+                "one": "{count} blade",
+                "other": "{count} blades"
+            },
+            "bladesTitle": "Shape of the aperture (bokeh)",
+            "bokeh": "Bokeh",
+            "plane": "Line",
+            "planeTitle": "Show the focus line in the preview",
+            "hint": "Blur in HQ (path tracing) only. In Basic/Default – while the camera is selected – a green line shows where the focus lies.",
+            "undo": {
+                "enabled": "Depth of field",
+                "focusDistance": "Focus plane",
+                "autoFocus": "Autofocus",
+                "fStop": "Aperture",
+                "blades": "Aperture shape"
+            },
+            "titleSplats": "Depth of field (live, also while orbiting)",
+            "hintSplats": "With Gaussian splats every splat is blurred by its distance to the focus – live in the view. While the camera is selected, the green line shows where the focus lies."
+        },
+        "lens": {
+            "title": "Lens effects",
+            "bloom": "Bloom",
+            "bloomTitle": "Bright areas bleed out",
+            "strength": "Strength",
+            "radius": "Radius",
+            "threshold": "Threshold",
+            "length": "Length",
+            "rays": "Rays",
+            "rotation": "Rotation °",
+            "bloomThresholdTitle": "Brightness (linear, before tone mapping) above which bloom starts – 1 = white",
+            "glare": "Glare",
+            "glareTitle": "Star rays on bright spots",
+            "glareThresholdTitle": "Brightness (linear, before tone mapping) above which rays appear – 1 = white",
+            "raysCount": {
+                "one": "{count} ray",
+                "other": "{count} rays"
+            },
+            "chromatic": "Fringing",
+            "chromaticTitle": "Chromatic aberration",
+            "undo": {
+                "bloom": "Bloom",
+                "bloomStrength": "Bloom strength",
+                "bloomRadius": "Bloom radius",
+                "bloomThreshold": "Bloom threshold",
+                "glare": "Glare",
+                "glareStrength": "Glare strength",
+                "glareLength": "Glare length",
+                "glareRays": "Glare rays",
+                "glareRotation": "Glare rotation",
+                "glareThreshold": "Glare threshold",
+                "chromatic": "Chromatic aberration",
+                "chromaticStrength": "Fringing strength",
+                "shafts": "God rays",
+                "shaftsStrength": "Light shaft strength",
+                "shaftsLength": "Light shaft length",
+                "shaftsThreshold": "Light shaft threshold",
+                "flare": "Lens flare",
+                "flareStrength": "Lens flare strength",
+                "flareSpacing": "Lens flare spacing",
+                "flareHalo": "Lens flare halo",
+                "flareChromatic": "Lens flare colour fringe",
+                "flareSoftness": "Lens flare softness"
+            },
+            "shafts": "God rays",
+            "shaftsTitle": "Rays from the brightest point of the HDRI (sun) – past objects, blocked behind them",
+            "shaftsThresholdTitle": "Brightness (linear, before tone mapping) from which a spot casts rays – 1 = white",
+            "flare": "Lens flare",
+            "flareTitle": "Lens reflections of the sun (ghosts, halo, glow) – same light source as the light shafts (brightest spot of the HDRI); they disappear when the model covers the sun (seen from the camera), partially covered = fainter",
+            "flareSpacing": "Spacing",
+            "flareHalo": "Halo",
+            "flareChromatic": "Colour fringe",
+            "flareSoftness": "Softness"
+        },
+        "view": {
+            "save": "Save view",
+            "saveTitle": "Save the current camera view (position, target, field of view, depth of field) – appears below “Camera” in the Scene Graph",
+            "name": "Name",
+            "fly": "Fly to",
+            "flyTitle": "Fly the camera to this view",
+            "overwrite": "Overwrite",
+            "overwriteTitle": "Overwrite with the current camera view",
+            "delete": "Delete",
+            "deleteTitle": "Delete view (Del)",
+            "hint": "Clicking the view in the Scene Graph flies the camera there.",
+            "deleteAll": {
+                "one": "Delete {count} view",
+                "other": "Delete {count} views"
+            },
+            "multiHint": "Several views selected (Shift+click to add/remove). Del deletes all."
+        },
+        "missing": {
+            "relink": "Link…",
+            "remove": "Remove from scene",
+            "hint": "The file of this model (or part of it) is missing. Link the file or remove the model from the scene."
+        },
+        "morphs": {
+            "title": "Morph targets",
+            "reset": "All to 0"
+        },
+        "section": {
+            "expand": "Expand settings",
+            "collapse": "Collapse settings"
+        },
+        "look": {
+            "title": "Image",
+            "exposure": "Exposure",
+            "exposureTitle": "Exposure in stops (EV): +1 = twice as bright",
+            "toneMapping": "Tone mapping",
+            "toneMappingTitle": "Curve that brings bright HDR values to the screen",
+            "toneMappings": {
+                "aces": "ACES Filmic",
+                "agx": "AgX",
+                "neutral": "Neutral (Khronos)",
+                "reinhard": "Reinhard",
+                "cineon": "Cineon",
+                "none": "None (linear)"
+            },
+            "temperature": "Temp. K",
+            "temperatureTitle": "White balance like a camera/Lightroom: higher = warmer, lower = cooler (6500 K = neutral)",
+            "tint": "Tint",
+            "tintTitle": "White balance green (−) ↔ magenta (+)",
+            "contrast": "Contrast",
+            "saturation": "Saturation",
+            "reset": "Reset",
+            "undo": {
+                "exposure": "Exposure",
+                "toneMapping": "Tone mapping",
+                "temperature": "Colour temperature",
+                "tint": "Tint",
+                "contrast": "Contrast",
+                "saturation": "Saturation",
+                "reset": "Reset image"
+            }
+        }
+    },
+    "sceneState": {
+        "notSceneFile": "Not a scene file",
+        "newerVersion": "Scene file is newer (version {version})",
+        "missingAssignments": {
+            "one": "{count} material assignment without a matching part",
+            "other": "{count} material assignments without a matching part"
+        },
+        "treeMismatch": "Object tree does not match the model – transforms/visibility skipped",
+        "lightNotFound": "Light “{name}” not found",
+        "hdriMissing": "HDRI “{name}” not in the hdr folder – using Studio",
+        "hdriError": "HDRI “{name}”: {message}"
+    },
+    "ki": {
+        "title": "AI rendering",
+        "resultTitle": "AI result",
+        "historyTitle": "AI history",
+        "close": "Close (Esc)",
+        "preparing": "Preparing image…",
+        "aborted": "Cancelled: {message}",
+        "history": "History",
+        "previewHint": "This image is sent along. Composition and geometry are kept – the AI turns it into a photorealistic image.",
+        "promptLabel": "Prompt (with all materials, editable)",
+        "reset": "Reset",
+        "resolution": "Resolution {size}",
+        "send": "Send to AI",
+        "rendering": "AI is rendering…",
+        "renderingTimer": "AI is rendering… {seconds} s (usually 10–60 s)",
+        "error": "Error: {message}",
+        "resultInfo": "{model} · {size} · {seconds} s",
+        "resultInfoCached": "from cache · {model} · {size} · {seconds} s",
+        "regenerate": "Regenerate",
+        "regenerateTitle": "Same prompt, new AI call (ignore the cache)",
+        "editPrompt": "Edit prompt",
+        "download": "Download",
+        "delete": "Delete",
+        "deleteTitle": "Delete this AI result together with its input image",
+        "tagViewer": "Viewer",
+        "tagAi": "AI",
+        "modelText": "AI: {text}",
+        "confirmDelete": "Permanently delete the AI result together with its input image?",
+        "deleteFailed": "Deleting failed: {message}",
+        "back": "Back",
+        "empty": "No AI images yet.",
+        "historyFailed": "Could not load history: {message}",
+        "prompt": {
+            "intro": "Photorealistic product photo. Keep the framing, perspective, geometry and arrangement of all parts exactly as in the image.",
+            "introTitled": "Photorealistic product photo of “{title}”. Keep the framing, perspective, geometry and arrangement of all parts exactly as in the image.",
+            "materialsHeading": "Materials (colour in the image → material):",
+            "cadMaterial": "unnamed CAD material in {color}",
+            "namedMaterial": "“{name}” ({color})",
+            "materialLine": "- {label}: {description}",
+            "materialLineParts": "- {label}: {description} – parts: {parts}",
+            "materialLineMoreParts": "- {label}: {description} – parts: {parts} and others ({total} in total)",
+            "closing": "Realistic surfaces with fine detail, matching reflections, soft studio lighting, natural shadows. No text, no watermarks.",
+            "environment": {
+                "hdriLight": "lighting from the HDRI “{name}”",
+                "studioLight": "soft, neutral studio lighting",
+                "backgroundVisible": "background as in the image (environment visible)",
+                "backgroundStudio": "neutral, dark studio background with a gradient as in the image",
+                "sentence": "{light}, {background}.",
+                "sentenceGround": "{light}, {background}, object stands on the ground with contact shadows."
+            }
+        },
+        "material": {
+            "glass": "transparent like glass",
+            "glassIor": "transparent like glass (IOR {ior})",
+            "metal": "metal",
+            "dielectric": "non-metallic (plastic/paint)",
+            "polished": "high-gloss/polished",
+            "glossy": "glossy",
+            "satin": "satin",
+            "matte": "matte",
+            "clearcoat": "with clearcoat",
+            "sheen": "fabric-like",
+            "emissive": "emissive ({color})"
+        },
+        "errors": {
+            "INVALID_PROMPT": "Prompt missing",
+            "INVALID_IMAGE": "Not a valid image",
+            "STORAGE_ERROR": "Browser storage (IndexedDB) not available: {detail}",
+            "PROVIDER_UNREACHABLE": "AI provider not reachable: {detail}",
+            "PROVIDER_ERROR": "AI provider: HTTP {status} – {detail}",
+            "NO_IMAGE": "The AI returned no image",
+            "NO_IMAGE_TEXT": "The AI returned no image: {detail}",
+            "IMAGE_UNREADABLE": "AI image not readable",
+            "NO_API_KEY": "No API key entered (settings → AI rendering)",
+            "INVALID_API_KEY": "API key rejected: {detail}",
+            "TIMEOUT": "No answer after {seconds} s"
+        },
+        "deleteDialogTitle": "Delete AI result",
+        "noKey": "AI rendering needs your own Gemini API key. Enter it in the settings under “AI rendering” – it stays in this browser.",
+        "openSettings": "Open settings"
+    },
+    "debugStats": {
+        "scan": {
+            "button": "Measure duplicates",
+            "noModel": "No model loaded (or still loading)",
+            "progress": "Measuring … {done}/{total}",
+            "units": "Geom.    {units} stored · {instances} meshes · {triangles} triangles",
+            "duplicates": "equal    {count} geometries in {groups} groups → −{triangles} triangles ({percent} %)",
+            "mirrored": "mirrored {count} geometries → −{triangles} triangles ({percent} %)",
+            "time": "         {ms} ms · group table in the console",
+            "isotropic": "         {count} isotropic (sphere/cube – not comparable)"
+        },
+        "noWebGpu": "WebGL2 (no WebGPU)",
+        "millions": "{value} M",
+        "thousands": "{value} k",
+        "fps": "fps      {fps}  ({ms} ms CPU/frame)",
+        "cpuSplit": "         scene {scene} · shadows {shadow} · sync {sync} · other {rest} ms",
+        "gpu": "GPU      {name}",
+        "gpuUsed": "  used   {size}",
+        "gpuBreakdown": "         Geom. {geometry} · Tex. {textures} · PT {storage}",
+        "gpuTotal": "  total  n/a (WebGPU)",
+        "gpuTotalMaxBuffer": "  total  n/a (WebGPU) · max. buffer {size}",
+        "device": " · device ≥ {gb} GB",
+        "ramPage": "RAM      page+workers {size}{device}",
+        "ramHeap": "RAM      ~{size} (estimate, ≤ 20 min old){device}",
+        "ramNone": "RAM      n/a{device}",
+        "triangles": "Triangles {total}  (visible {visible})",
+        "unique": "         unique {unique} · {meshes} meshes",
+        "frame": "Frame    {triangles} triangles · {drawCalls} draw calls"
+    },
+    "benchmark": {
+        "title": "Path tracing benchmark",
+        "copy": "Copy",
+        "copied": "Copied ✓",
+        "copyFailed": "Copy failed",
+        "close": "Close",
+        "progress": "Benchmark {index}/{total}: {name}",
+        "defaultVariant": "Default (as before)",
+        "noSample": "no sample",
+        "unknown": "unknown",
+        "columns": {
+            "variant": "Variant",
+            "note": "Note",
+            "samplesPerSecond": "Samples/s",
+            "megaPathsPerSecond": "M paths/s",
+            "fps": "FPS",
+            "firstSampleMs": "First sample ms",
+            "pixels": "Pixels",
+            "error": "Error"
+        },
+        "header": {
+            "gpu": "GPU",
+            "window": "Window",
+            "bounces": "Bounces",
+            "browser": "Browser"
+        }
+    },
+    "render": {
+        "gpuError": "GPU error"
+    },
+    "status": {
+        "focusPick": "Click on the model to set the focus plane – Esc cancels",
+        "busyLoading": "Not possible while loading",
+        "nothingToRedo": "Nothing to redo",
+        "nothingToUndo": "Nothing to undo",
+        "redone": "Redone: {label}",
+        "undone": "Undone: {label}",
+        "loadingFile": "Loading file…",
+        "optimizing": "Optimizing display…",
+        "tessellatingParts": "Tessellating parts…",
+        "error": "Error: {message}",
+        "ptError": "Path tracing error: {message}",
+        "buildingScene": {
+            "one": "{count} part – building scene…",
+            "other": "{count} parts – building scene…"
+        },
+        "noFaces": "No faces in the model",
+        "missingTextures": "Not found: {files} – drag the textures into the window as well",
+        "decodingHdri": "Decoding HDRI…",
+        "loadingHdri": "Loading HDRI…",
+        "loadModelFirst": "Load a model first",
+        "sceneBelongsTo": "Scene belongs to “{name}” – drag the model into the window",
+        "restoringScene": "Restoring scene…",
+        "sceneError": "Scene: {message}",
+        "invalidJson": "{name}: not valid JSON",
+        "notSceneOrMaterials": "{name}: neither a scene nor materials",
+        "unsupportedFormat": "Format not supported ({extensions})",
+        "dropHint": "Drag a file into the window",
+        "dropFormats": "STEP (.stp/.step) · glTF/GLB · FBX · STL · PLY · BIM (.ifc/.ifczip) · BCF issues (.bcfzip) · Gaussian splats (.ply/.sog)",
+        "qualityReduced": "Large model (≈ {triangles} triangles at “{from}”) – quality automatically reduced to “{to}”",
+        "modelTooLarge": "Model too large: ≈ {triangles} triangles at “{quality}” (limit {limit}) – loading cancelled",
+        "qualityTooFine": "“{quality}” is too fine for this model (≈ {triangles} triangles, limit {limit}) – quality stays “{previous}”",
+        "partsTooFine": "Part quality too fine (≈ {triangles} triangles at “{quality}”, limit {limit}) – change reverted",
+        "modelReset": "Model reset to its original state",
+        "modelAdded": "Model “{name}” added",
+        "loadingSplats": "Loading Gaussian splats…",
+        "splatsLoaded": "{count} Gaussian splats loaded",
+        "splatsAlone": "Gaussian splats are always loaded on their own – the other models were ignored",
+        "splatsTooMany": "Too many splats for this graphics card ({count})",
+        "noSplats": "The file contains no splats",
+        "viewSaved": "“{name}” saved",
+        "viewOverwritten": "“{name}” overwritten",
+        "modelIncomplete": "{name} is incomplete – missing: {files}. Drag the files into the window or link them in the asset window",
+        "relinked": {
+            "one": "{count} file linked",
+            "other": "{count} files linked"
+        },
+        "relinkUnmatched": "{count} linked – does not match any missing file: {files}",
+        "sceneSaved": "Scene saved: {name}",
+        "sceneSaveError": "Could not save the scene: {message}",
+        "noRenderer": "This browser can use neither WebGPU nor WebGL2 here (no graphics card or hardware acceleration off) – the viewer cannot start.",
+        "bcfLoaded": "{count} BCF issues loaded from {name}",
+        "bcfSaved": "BCF saved: {name}",
+        "bcfNoElements": {
+            "one": "The element of this issue is not in the loaded IFC models",
+            "other": "The {count} elements of this issue are not in the loaded IFC models"
+        }
+    },
+    "pathtracing": {
+        "phases": {
+            "unsupported": "Path tracing: no WebGPU",
+            "waiting": "Waiting for model",
+            "bvh": "Taking over scene",
+            "preview": "Moving",
+            "motion": "Path tracing (moving)",
+            "error": "Path tracing error",
+            "suspended": "Section view",
+            "rendering": "Path tracing",
+            "denoiseLoading": "Loading denoiser (OIDN)",
+            "denoising": "Denoising (OIDN)",
+            "done": "Done"
+        },
+        "samples": "{samples} / {maxSamples} samples",
+        "percent": "{value} %",
+        "detail": {
+            "unsupported": "Browser without WebGPU – rasterizer only",
+            "bufferTooSmall": "Model too large for the GPU buffers – reduce the quality",
+            "gpuError": "GPU error, see console",
+            "suspended": "Path tracing paused while the section is active",
+            "preview": "Path tracing paused – resumes on release",
+            "motion": "Reduced quality – full quality on release",
+            "renderingDenoise": "{samples} · then denoise",
+            "denoiseLoading": "Loading AI network…",
+            "doneDenoised": "{samples} · denoised"
+        }
+    },
+    "toolbar": {
+        "ki": "AI",
+        "kiTitle": "AI rendering: current image (in HQ the finished path traced image) + materials to the image AI",
+        "saveScene": "Save scene as… (camera, environment, lights, materials, transforms …)",
+        "loadScene": "Load scene…",
+        "setup": "Setup: path tracing, tessellation",
+        "hideUi": "Hide interface (U)",
+        "showUi": "Show interface (U)",
+        "fullscreen": "Fullscreen",
+        "exitFullscreen": "Exit fullscreen",
+        "explode": "Exploded view (X)",
+        "collapse": "Collapse exploded view (X)",
+        "undo": "Undo (Ctrl+Z)",
+        "redo": "Redo (Ctrl+Y)",
+        "undoStep": "Undo: {label} (Ctrl+Z)",
+        "redoStep": "Redo: {label} (Ctrl+Y)",
+        "nothingToUndo": "Nothing to undo",
+        "nothingToRedo": "Nothing to redo",
+        "explodeLabel": "Explode",
+        "resetModel": "Reset all changes to the model (materials, moves, visibility, explosion)",
+        "assets": "Assets (files in use, relink missing ones)",
+        "assetsMissing": {
+            "one": "Assets – {count} file missing",
+            "other": "Assets – {count} files missing"
+        },
+        "exportImage": "Export image (PNG/JPG)",
+        "bcf": "BCF issues"
+    },
+    "viewMode": {
+        "basic": {
+            "label": "Basic",
+            "title": "Basic – uniform grey model (1)"
+        },
+        "default": {
+            "label": "Default",
+            "title": "Default – materials and textures (2)"
+        },
+        "hq": {
+            "label": "HQ",
+            "title": "HQ – path tracing (3)"
+        }
+    },
+    "quadMenu": {
+        "display": "Display",
+        "showAll": "Show all",
+        "hideUnselected": "Hide unselected",
+        "hideSelection": "Hide selection",
+        "transform": "Transform",
+        "translate": "Move",
+        "rotate": "Rotate",
+        "scale": "Scale",
+        "delete": "Delete",
+        "deleteKey": "Del"
+    },
+    "setup": {
+        "title": "Settings",
+        "pathtracing": "Path tracing",
+        "active": "Active (= HQ)",
+        "activeNoWebGpu": "Active (no WebGPU)",
+        "bounces": "Bounces",
+        "resolution": "Resolution",
+        "maxSamples": "Max. samples",
+        "glossyFilter": "Glossy filter",
+        "denoise": "Denoise (OIDN)",
+        "upscale": "Upscaling (FSR)",
+        "fsrSharpness": "FSR sharpness",
+        "motion": "While moving",
+        "motionEnabled": "Path tracing (reduced)",
+        "samplesPerFrame": "Samples per frame",
+        "tessellation": "Tessellation",
+        "quality": "Quality",
+        "close": "Close (Esc)",
+        "ki": {
+            "title": "AI rendering",
+            "apiKey": "Gemini API key",
+            "apiKeyPlaceholder": "Paste key",
+            "removeKey": "Remove key",
+            "model": "Model",
+            "size": "Resolution (default)",
+            "hint": "The key is stored only in this browser (localStorage) and is sent directly to Google – no server of our own. Scripts on this page and some browser extensions could read it, so set a spending limit in your Google account. History and cache also stay in this browser.",
+            "getKey": "Create a key in Google AI Studio"
+        },
+        "bim": {
+            "title": "BIM",
+            "author": "Author (BCF)",
+            "authorPlaceholder": "Name or e-mail",
+            "authorHint": "Used for new BCF issues and comments. Stored in this browser only."
+        }
+    },
+    "sceneEntries": {
+        "environment": "Environment (HDRI)",
+        "lights": "Lights",
+        "ambientLight": "Ambient light",
+        "mainLight": "Key light",
+        "fillLight": "Fill light",
+        "camera": "Camera",
+        "slicer": "Section plane"
+    },
+    "viewer": {
+        "undo": {
+            "moveLight": "Move light",
+            "transformSelection": "Move/rotate selection",
+            "transform": "Move/rotate",
+            "focusOnPivot": "Focus on pivot",
+            "setFocus": "Set focus plane",
+            "focusByClick": "Focus plane by click",
+            "show": "Show",
+            "hide": "Hide",
+            "assignMaterial": "Assign material",
+            "partQuality": "Part quality",
+            "resetModel": "Reset model",
+            "delete": {
+                "one": "Delete part",
+                "other": "Delete {count} parts"
+            },
+            "saveView": "Save view",
+            "renameView": "Rename view",
+            "overwriteView": "Overwrite view",
+            "deleteView": {
+                "one": "Delete view",
+                "other": "Delete {count} views"
+            },
+            "morph": "Morph target “{name}”",
+            "morphReset": "Reset morph targets"
+        },
+        "objectsWithMaterial": "Objects with “{name}”",
+        "ki": {
+            "noModel": "No model loaded",
+            "dialogClosed": "Dialog closed",
+            "ptError": "Path tracing error",
+            "sectionActive": "Section view active – switch the section plane off first",
+            "progress": {
+                "bvh": "Taking over scene…",
+                "rendering": "Path tracing {samples} / {maxSamples} samples…",
+                "denoiseLoading": "Loading denoiser…",
+                "denoising": "Denoising…",
+                "moving": "Camera is moving…",
+                "waiting": "Waiting for HQ image…"
+            },
+            "environment": {
+                "lightHdri": "lighting from the HDRI “{name}”",
+                "lightStudio": "soft, neutral studio lighting",
+                "backgroundHdri": "background as in the image (environment visible)",
+                "backgroundStudio": "neutral, dark studio background with a gradient as in the image",
+                "sentence": "{light}, {background}.",
+                "sentenceGround": "{light}, {background}, object stands on the ground with contact shadows."
+            }
+        },
+        "benchmark": {
+            "start": "Start benchmark (~1 min)",
+            "needsModel": "Benchmark: load a model first",
+            "error": "Benchmark error: {message}"
+        },
+        "confirmRemoveModel": "Remove model “{name}”? This cannot be undone.",
+        "confirmRemoveModels": "Remove {count} models ({names})? This cannot be undone.",
+        "removeModelTitle": {
+            "one": "Remove model",
+            "other": "Remove {count} models"
+        },
+        "removeModelConfirm": "Remove",
+        "confirmRemoveMissing": "Remove “{name}” from the scene? This cannot be undone.",
+        "sceneFileType": "RINDR scene"
+    },
+    "page": {
+        "title": "RINDR",
+        "loading": "Initialising viewer...",
+        "sceneGraph": "Scene Graph",
+        "drop": {
+            "title": "Drop file here",
+            "hint": "STEP (.stp/.step), glTF/GLB, FBX, STL, PLY, BIM (.ifc/.ifczip), BCF issues (.bcfzip), Gaussian splats (.ply/.sog) – just drop textures and .bin files along with it",
+            "addHint": "Several models: drop them together or one after another – they appear side by side",
+            "replaceTitle": "Replace models",
+            "replaceHint": "The loaded models are removed and replaced by the new file",
+            "addTitle": "Add to the scene",
+            "addSplitHint": "The new file appears in addition, next to the existing models",
+            "relinkTitle": "Link missing files",
+            "relinkHint": "The files are matched to the missing textures or files of the scene by their names",
+            "splatReplaceHint": "Gaussian splats always stand alone – they are not combined with other models",
+            "splatNote": "Gaussian splats (.ply/.sog) always replace the whole scene"
+        },
+        "ptStatus": "Path tracing",
+        "brand": "<strong>RINDR</strong> <i>alpha</i>"
+    },
+    "about": {
+        "title": "About",
+        "description": "Your Local 3D-File Viewer – STEP, glTF, FBX, STL, BIM (IFC, BCF) and Gaussian splats right in the browser, with real-time path tracing.",
+        "author": "Author",
+        "email": "Email",
+        "version": "Version",
+        "madeWith": "Designed with ♥️. Powered by Claude.",
+        "openSource": "RINDR is built on great open-source projects. Thanks to everyone who contributes to them!",
+        "runtime": "In the viewer",
+        "assets": "HDRI environments",
+        "build": "For building",
+        "libs": {
+            "three": "3D engine, WebGPU renderer, glTF/FBX/STL loaders",
+            "pathtracer": "GPU path tracing (HQ)",
+            "bvh": "Acceleration structures for raycasting and path tracing",
+            "oidn": "AI denoising (weights)",
+            "oidnWeb": "Open Image Denoise in the browser",
+            "upscaler": "Upscaling (AMD FSR)",
+            "earcut": "Triangulation of STEP faces",
+            "cdt2d": "Delaunay triangulation (fallback)",
+            "polygonClipping": "Repair of crossing face boundaries",
+            "robustPredicates": "Exact geometric predicates",
+            "robustGeometry": "Exact geometric predicates for cdt2d",
+            "splaytree": "Data structure for polygon-clipping",
+            "float16": "Half-float data for the denoiser",
+            "draco": "Draco mesh decompression (glTF)",
+            "basis": "KTX2/Basis textures (glTF)",
+            "ktxParse": "KTX2 container and Zstandard (glTF)",
+            "meshopt": "Meshopt compression (glTF)",
+            "fflate": "Decompression of FBX data",
+            "astro": "Web framework",
+            "vite": "Build tool",
+            "tailwind": "CSS framework",
+            "openHdri": "HDRI maps for lighting and background",
+            "webIfc": "IFC import (BIM): geometry and properties"
+        }
+    },
+    "cameraViews": {
+        "name": "View {n}"
+    },
+    "animation": {
+        "play": "Play (Space)",
+        "pause": "Pause (Space)",
+        "timeline": "Timeline",
+        "clip": "Animation",
+        "clipName": "Animation {n}"
+    },
+    "dialog": {
+        "ok": "OK",
+        "cancel": "Cancel"
+    },
+    "assets": {
+        "title": "Assets",
+        "missingCount": {
+            "one": "{count} missing",
+            "other": "{count} missing"
+        },
+        "allFound": "all linked",
+        "empty": "No files yet – drop a model or load a scene.",
+        "dropHint": "Drop missing files or folders here – they are matched by file name.",
+        "pickFiles": "Files…",
+        "pickFolder": "Folder…",
+        "missing": "missing",
+        "found": "linked",
+        "relink": "Relink…",
+        "relinkTitle": "Choose the file for “{name}”",
+        "textureOf": "Texture of {model}",
+        "incomplete": "incomplete – files missing",
+        "bufferOf": "Data of {model}"
+    },
+    "imageExport": {
+        "title": "Export image",
+        "format": "Format",
+        "transparent": "Transparent background",
+        "transparentHint": "Models, ground shadow, glass, depth of field and bloom/glare are kept. Alpha is premultiplied (with black) – interpret it that way in compositing software. In HQ this renders twice.",
+        "size": "{width} × {height} px",
+        "preparing": "Preparing image…",
+        "export": "Export",
+        "failed": "Export cancelled: {message}",
+        "pass": "Pass {n}/{total}: {text}",
+        "scale": "Size",
+        "scaleTitle": "Larger than the screen: the image is rendered again at a higher resolution (takes correspondingly longer in HQ)",
+        "tooLarge": "too large for the GPU (max. {max} px)",
+        "sizeScreen": "current view"
+    },
+    "bim": {
+        "status": {
+            "building": "Reading IFC and building geometry …"
+        },
+        "errors": {
+            "noIfcInZip": "No .ifc file found in the ifczip"
+        },
+        "material": {
+            "color": "IFC colour {color}"
+        },
+        "props": {
+            "loading": "Loading IFC properties …",
+            "none": "No IFC properties",
+            "error": "IFC properties not readable: {message}",
+            "class": "Class",
+            "Name": "Name",
+            "LongName": "Long name",
+            "GlobalId": "GlobalId",
+            "Description": "Description",
+            "ObjectType": "Type",
+            "Tag": "Tag",
+            "PredefinedType": "Predef. type",
+            "Elevation": "Elevation",
+            "sections": {
+                "general": "IFC",
+                "material": "Material"
+            }
+        },
+        "classes": {
+            "IFCWALL": "Walls",
+            "IFCWALLSTANDARDCASE": "Wall",
+            "IFCSLAB": "Slabs",
+            "IFCROOF": "Roof",
+            "IFCBEAM": "Beams",
+            "IFCCOLUMN": "Columns",
+            "IFCDOOR": "Doors",
+            "IFCWINDOW": "Windows",
+            "IFCSTAIR": "Stairs",
+            "IFCSTAIRFLIGHT": "Stair flights",
+            "IFCRAMP": "Ramps",
+            "IFCRAMPFLIGHT": "Ramp flights",
+            "IFCRAILING": "Railings",
+            "IFCCURTAINWALL": "Curtain walls",
+            "IFCPLATE": "Plates",
+            "IFCMEMBER": "Members",
+            "IFCCOVERING": "Coverings",
+            "IFCFOOTING": "Footings",
+            "IFCPILE": "Piles",
+            "IFCFURNISHINGELEMENT": "Furnishing",
+            "IFCFURNITURE": "Furniture",
+            "IFCBUILDINGELEMENTPROXY": "Other elements",
+            "IFCBUILDINGELEMENTPART": "Element parts",
+            "IFCFLOWTERMINAL": "Terminals",
+            "IFCFLOWSEGMENT": "Segments",
+            "IFCFLOWFITTING": "Fittings",
+            "IFCDISTRIBUTIONELEMENT": "Building services",
+            "IFCSPACE": "Space",
+            "IFCBUILDINGSTOREY": "Storey",
+            "IFCBUILDING": "Building",
+            "IFCSITE": "Site",
+            "IFCPROJECT": "Project",
+            "IFCOPENINGELEMENT": "Openings",
+            "IFCGRID": "Grid",
+            "IFCCHIMNEY": "Chimneys",
+            "IFCSHADINGDEVICE": "Shading devices",
+            "IFCTRANSPORTELEMENT": "Transport elements",
+            "IFCELEMENTASSEMBLY": "Assemblies",
+            "IFCREINFORCINGBAR": "Reinforcement",
+            "IFCVIRTUALELEMENT": "Virtual elements",
+            "UNASSIGNED": "Unassigned"
+        }
+    },
+    "bcf": {
+        "title": "BCF issues",
+        "untitled": "(untitled)",
+        "back": "Back to the list",
+        "empty": "No issues. “New” creates one from the current view, or open a .bcfzip / drop it into the window.",
+        "authorTitle": "Author of new issues and comments (settings → BIM)",
+        "new": "New",
+        "open": "Open…",
+        "export": "Save…",
+        "unsaved": "Unsaved changes",
+        "commentCount": {
+            "one": "{count} comment",
+            "other": "{count} comments"
+        },
+        "fields": {
+            "title": "Title",
+            "status": "Status",
+            "type": "Type",
+            "priority": "Priority",
+            "assignedTo": "Assigned to",
+            "dueDate": "Due",
+            "labels": "Labels",
+            "description": "Description"
+        },
+        "created": "Created by {author}, {date}",
+        "viewpoints": "Views",
+        "viewpointN": "View {n}",
+        "applyViewpoint": "Show view (camera, visibility, selection)",
+        "deleteViewpoint": "Delete view",
+        "addViewpoint": "+ Current view",
+        "comments": "Comments",
+        "showView": "View",
+        "commentPlaceholder": "Write a comment …",
+        "withView": "with current view",
+        "addComment": "Add",
+        "deleteTopic": "Delete issue",
+        "replaceTitle": "Replace issues?",
+        "replaceMessage": "The open issues have unsaved changes. Open the new file anyway?",
+        "replaceConfirm": "Replace",
+        "authorAs": "As {author}",
+        "setAuthor": "Set author …",
+        "anonymous": "Anonymous"
+    }
+}

@@ -1,0 +1,49 @@
+# Force HTTPS (also behind a proxy/load balancer that terminates TLS)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteCond %{HTTPS} off
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,NE]
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain text/html text/css application/javascript text/javascript application/json application/wasm image/svg+xml
+
+    # STEP files (text-based!)
+    AddOutputFilterByType DEFLATE model/step application/step application/octet-stream
+
+    # Fallback for .stp
+    <FilesMatch "\.stp$">
+        SetOutputFilter DEFLATE
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.stp$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header set Connection keep-alive
+</IfModule>
+
+AddType model/step .stp
+
+<IfModule mod_headers.c>
+    Header set Accept-Ranges bytes
+</IfModule>
+# Cross-origin isolation for SharedArrayBuffer (parallel BVH building on several CPU cores)
+<IfModule mod_headers.c>
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>
+
+AddType application/wasm .wasm
+
+# Bundled assets have content hashes in their file names
+<IfModule mod_headers.c>
+    <If "%{REQUEST_URI} =~ m#/_astro/#">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </If>
+</IfModule>

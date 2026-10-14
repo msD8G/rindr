@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Select lists: dark popup (otherwise white text on white background, since the fields inherit text-white) */
+select {
+    color-scheme: dark;
+}
+select option,
+select optgroup {
+    background-color: #262626;
+    color: #f5f5f5;
+}
