@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { loadEnv } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -73,10 +74,16 @@ const isolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
+// .env is not loaded into process.env for the config itself (prefix '' = all keys, read here only)
+const fileEnv = loadEnv(process.env.NODE_ENV === 'production' ? 'production' : 'development', process.cwd(), '');
+
 export default defineConfig({
   // Sub directory on the server: BASE_PATH=/rindr/ npm run build (default: domain root).
   // All runtime paths use import.meta.env.BASE_URL or are relative.
   base: process.env.BASE_PATH || '/',
+  // Public origin for absolute og:image / og:url links: SITE_URL in .env or the shell
+  // (without it the social-preview tags use relative paths, which most crawlers ignore).
+  site: process.env.SITE_URL || fileEnv.SITE_URL || undefined,
   server: {
     host: true,
     port: 4321,

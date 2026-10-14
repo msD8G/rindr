@@ -1096,8 +1096,10 @@
         "sceneFileType": "RINDR-Szene"
     },
     "page": {
-        "title": "RINDR",
-        "loading": "Initialisiere Viewer...",
+        "title": "RINDR – 3D-Viewer mit Pathtracing im Browser",
+        "description": "STEP, glTF, FBX, STL, BIM (IFC, BCF) und Gaussian Splats direkt im Browser öffnen – lokal, ohne Upload, mit Materialbibliothek und Echtzeit-Pathtracing.",
+        "ogImageAlt": "RINDR-Logo (Kuhkopf) mit dem Schriftzug „3D-Viewer im Browser“",
+        "loading": "RINDR wird gestartet …",
         "sceneGraph": "Scene Graph",
         "drop": {
             "title": "Datei hier ablegen",

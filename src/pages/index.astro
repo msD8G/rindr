@@ -13,6 +13,12 @@ const hdris = fs.existsSync('public/hdr')
     ? fs.readdirSync('public/hdr').filter(f => /\.(hdr|exr)$/i.test(f)).sort()
     : [];
 
+// Social preview (Open Graph / Twitter): absolute URLs only when `site` is set (SITE_URL at build time)
+const base = import.meta.env.BASE_URL;
+const abs = (path) => Astro.site ? new URL(base + path, Astro.site).href : base + path;
+const pageUrl = abs('');
+const ogImage = abs('og-image.png');
+
 ---
 
 <!doctype html>
@@ -21,6 +27,20 @@ const hdris = fs.existsSync('public/hdr')
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title data-i18n="page.title">{tr('page.title')}</title>
+        <meta name="description" content={tr('page.description')} />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="RINDR" />
+        <meta property="og:title" content={tr('page.title')} />
+        <meta property="og:description" content={tr('page.description')} />
+        <meta property="og:url" content={pageUrl} />
+        <meta property="og:image" content={ogImage} />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={tr('page.ogImageAlt')} />
+        <meta property="og:locale" content="de_DE" />
+        <meta property="og:locale:alternate" content="en_US" />
+        <meta name="twitter:card" content="summary_large_image" />
         <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="shortcut icon" href="/favicon.ico" />
