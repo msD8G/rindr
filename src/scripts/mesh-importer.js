@@ -6,7 +6,6 @@
 // Units are converted to mm (like STEP): glTF is in metres, FBX in cm × UnitScaleFactor.
 // Materials become separate entries (source 'import') in the MaterialManager, textures are kept.
 import * as THREE from 'three/webgpu';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { boxUVs, buildGeometryBVHs, orientTrianglesIsolated, UV_TILE } from './step-importer.js';
 import { t } from './i18n.js';
 
@@ -139,9 +138,10 @@ async function load(source, ext, renderer, onStatus = () => {}) {
         if (ext === 'stl') {
             // STL: one triangle soup, no units (by convention mm), no materials, no up axis (guessed:
             // meshUpAxis). The facet normals would look faceted: dropped, computeNormals smooths across
-            // shared positions with a 60° crease angle (like FBX/glTF without normals)
-            const geometry = new STLLoader().parse(buffer);
+            // shared positions with a 30° crease angle (like FBX/glTF without normals)
+            const geometry = new STLLoader().parse(normalizeStl(buffer));
             geometry.deleteAttribute('normal');
+            if (dropBrokenTriangles(geometry) === 0) throw new Error(t('import.mesh.noFaces'));
             // panels facing inwards (open sheets with the wrong side, inside-out bodies): mesh-orient.js
             const pos = geometry.getAttribute('position');
             if (pos.count >= 3) {
@@ -192,6 +192,53 @@ async function load(source, ext, renderer, onStatus = () => {}) {
         // images are decoded by then; release the blob URLs
         setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000);
     }
+}
+
+/**
+ * Makes an STL safe for STLLoader, whose format check only compares the face count at byte 80 with the
+ * file length and otherwise looks for "solid" in the first 5 bytes. Files that miss both (ASCII with
+ * leading blank lines or without "solid", binary with a wrong face count or trailing bytes) were read
+ * as binary with a garbage count → "Invalid typed array length".
+ * ASCII → string starting with "solid"; binary with a wrong count → copy with the count the file
+ * length allows (the original buffer stays untouched, it may be kept as a scene asset).
+ */
+export function normalizeStl(buffer) {
+    const len = buffer.byteLength;
+    if (len >= 84 && 84 + new DataView(buffer).getUint32(80, true) * 50 === len) return buffer;
+    // ASCII: "facet"/"vertex" keywords near the start and only text bytes there
+    const head = new Uint8Array(buffer, 0, Math.min(len, 1024));
+    const text = !head.some(b => b === 0 || (b < 9) || (b > 13 && b < 32));
+    if (text) {
+        // text without STL keywords (e.g. an HTML page saved as .stl): would only yield garbage triangles
+        if (!/^\uFEFF?\s*solid|\bfacet\s+normal\b|\bvertex\s+[-+.\d]/i.test(new TextDecoder().decode(head))) throw new Error(t('import.mesh.notStl'));
+        let str = new TextDecoder().decode(buffer).replace(/^\uFEFF?\s*/, '');
+        if (!/^solid/i.test(str)) str = 'solid\n' + str;
+        if (!/endsolid/i.test(str)) str += '\nendsolid\n';   // STLLoader only reads solid … endsolid blocks
+        return str;
+    }
+    if (len < 84) throw new Error('STL file too short');
+    const faces = Math.floor((len - 84) / 50);
+    console.warn(`[STL] header face count ${new DataView(buffer).getUint32(80, true)} does not match the file length – reading ${faces} faces`);
+    const fixed = buffer.slice(0, 84 + faces * 50);
+    new DataView(fixed).setUint32(80, faces, true);
+    return fixed;
+}
+
+/** Removes triangles with non-finite coordinates (NaN/Infinity from damaged files would break the bounds). Returns the triangle count. */
+function dropBrokenTriangles(geometry) {
+    const src = geometry.getAttribute('position').array;
+    let n = 0;
+    const out = new Float32Array(src.length);
+    for (let i = 0; i + 9 <= src.length; i += 9) {
+        let ok = true;
+        for (let k = 0; k < 9; k++) if (!Number.isFinite(src[i + k])) { ok = false; break; }
+        if (ok) out.set(src.subarray(i, i + 9), n++ * 9);
+    }
+    if (n * 9 !== src.length) {
+        console.warn(`[STL] dropped ${src.length / 9 - n} triangles with invalid coordinates`);
+        geometry.setAttribute('position', new THREE.BufferAttribute(out.slice(0, n * 9), 3));
+    }
+    return n;
 }
 
 /**
@@ -446,18 +493,76 @@ function inBindPose(mesh) {
 }
 
 // Normals for meshes without any: smooth across vertices at the same position (FBX/glTF often have none
-// shared), edges sharper than 60° stay hard – otherwise every triangle was flat (faceted)
+// shared), edges sharper than 30° stay hard – otherwise every triangle was flat (faceted).
+// Each face counts with its corner angle (Thürmer/Wüthrich), so the result does not depend on the
+// triangulation: three's toCreasedNormals averaged unweighted – fans of long thin triangles on flat CAD
+// faces (typical STL) pulled the vertex normals askew → distorted shading.
+const CREASE_DOT = Math.cos(Math.PI / 6);   // 30° like Blender: 60° also smoothed flat faces into neighbouring chamfers (shading gradient)
 function computeNormals(positions, index, normals) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    g.setIndex(new THREE.BufferAttribute(index, 1));
-    const creased = toCreasedNormals(g, Math.PI / 3);   // non-indexed: one vertex per triangle corner
-    const n = creased.getAttribute('normal');
-    // per corner → per vertex of our indexed buffer (corners sharing a vertex: average)
+    const nf = index.length / 3, nv = positions.length / 3;
+    // 1. face normals (unit) and corner angles
+    const fn = new Float64Array(nf * 3), angle = new Float64Array(index.length);
+    const len = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+    const cornerAngle = (ux, uy, uz, wx, wy, wz) => {
+        const d = len(ux, uy, uz) * len(wx, wy, wz);
+        return d > 0 ? Math.acos(Math.max(-1, Math.min(1, (ux * wx + uy * wy + uz * wz) / d))) : 0;
+    };
+    for (let f = 0; f < nf; f++) {
+        const a = index[f * 3] * 3, b = index[f * 3 + 1] * 3, c = index[f * 3 + 2] * 3;
+        const abx = positions[b] - positions[a], aby = positions[b + 1] - positions[a + 1], abz = positions[b + 2] - positions[a + 2];
+        const acx = positions[c] - positions[a], acy = positions[c + 1] - positions[a + 1], acz = positions[c + 2] - positions[a + 2];
+        const bcx = positions[c] - positions[b], bcy = positions[c + 1] - positions[b + 1], bcz = positions[c + 2] - positions[b + 2];
+        const x = aby * acz - abz * acy, y = abz * acx - abx * acz, z = abx * acy - aby * acx;
+        const l = len(x, y, z);
+        if (l > 0) { fn[f * 3] = x / l; fn[f * 3 + 1] = y / l; fn[f * 3 + 2] = z / l; }   // degenerate: zero, no weight
+        angle[f * 3] = cornerAngle(abx, aby, abz, acx, acy, acz);
+        angle[f * 3 + 1] = cornerAngle(-abx, -aby, -abz, bcx, bcy, bcz);
+        angle[f * 3 + 2] = Math.max(0, Math.PI - angle[f * 3] - angle[f * 3 + 1]);
+    }
+    // 2. weld vertices at the same position (grid relative to the model size, unit independent)
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < positions.length; i++) { const v = positions[i]; if (v < min) min = v; if (v > max) max = v; }
+    const inv = 1 / Math.max((max - min) * 1e-7, 1e-12);
+    const weld = new Int32Array(nv), q = new Int32Array(nv * 3);
+    let size = 1;
+    while (size < nv * 2) size <<= 1;
+    const table = new Int32Array(size);   // open addressing, slot = welded id + 1, 0 = empty
+    let count = 0;
+    for (let v = 0; v < nv; v++) {
+        const x = Math.round((positions[v * 3] - min) * inv), y = Math.round((positions[v * 3 + 1] - min) * inv), z = Math.round((positions[v * 3 + 2] - min) * inv);
+        let slot = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) & (size - 1);
+        for (;;) {
+            const e = table[slot];
+            if (e === 0) { q[count * 3] = x; q[count * 3 + 1] = y; q[count * 3 + 2] = z; table[slot] = ++count; weld[v] = count - 1; break; }
+            if (q[(e - 1) * 3] === x && q[(e - 1) * 3 + 1] === y && q[(e - 1) * 3 + 2] === z) { weld[v] = e - 1; break; }
+            slot = (slot + 1) & (size - 1);
+        }
+    }
+    // 3. corners around each welded position (CSR)
+    const start = new Int32Array(count + 1);
+    for (let i = 0; i < index.length; i++) start[weld[index[i]] + 1]++;
+    for (let k = 0; k < count; k++) start[k + 1] += start[k];
+    const cursor = start.slice(0, count), around = new Int32Array(index.length);
+    for (let i = 0; i < index.length; i++) around[cursor[weld[index[i]]]++] = i;
+    // 4. per corner: angle-weighted sum of the faces around it within the crease angle; corners of our
+    //    indexed buffer that share a vertex are averaged (vertex = index value)
     normals.fill(0);
     for (let i = 0; i < index.length; i++) {
+        const f3 = (i - i % 3);
+        const nx = fn[f3], ny = fn[f3 + 1], nz = fn[f3 + 2];
+        let sx = 0, sy = 0, sz = 0;
+        const id = weld[index[i]];
+        for (let k = start[id]; k < start[id + 1]; k++) {
+            const c = around[k], o = c - c % 3;
+            if (nx * fn[o] + ny * fn[o + 1] + nz * fn[o + 2] > CREASE_DOT) {
+                const w = angle[c];
+                sx += fn[o] * w; sy += fn[o + 1] * w; sz += fn[o + 2] * w;
+            }
+        }
+        const l = len(sx, sy, sz);
+        if (l > 0) { sx /= l; sy /= l; sz /= l; } else { sx = nx; sy = ny; sz = nz; }
         const v = index[i] * 3;
-        normals[v] += n.getX(i); normals[v + 1] += n.getY(i); normals[v + 2] += n.getZ(i);
+        normals[v] += sx; normals[v + 1] += sy; normals[v + 2] += sz;
     }
     for (let v = 0; v < normals.length; v += 3) {
         const l = Math.hypot(normals[v], normals[v + 1], normals[v + 2]) || 1;

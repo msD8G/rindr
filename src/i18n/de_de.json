@@ -29,6 +29,7 @@
             "orienting": "Richte Flächen aus...",
             "buildingGeometries": "Baue Geometrien...",
             "noFaces": "Die Datei enthält keine Flächen",
+            "notStl": "Keine gültige STL-Datei (evtl. eine gespeicherte Webseite statt des Modells?)",
             "gltfNoScene": "glTF ohne Szene",
             "unnamedMaterial": "Material {number}",
             "defaultMaterial": "Standard",

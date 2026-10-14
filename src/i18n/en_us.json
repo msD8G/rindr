@@ -29,6 +29,7 @@
             "orienting": "Orienting faces...",
             "buildingGeometries": "Building geometries...",
             "noFaces": "The file contains no faces",
+            "notStl": "Not a valid STL file (perhaps a saved web page instead of the model?)",
             "gltfNoScene": "glTF without a scene",
             "unnamedMaterial": "Material {number}",
             "defaultMaterial": "Default",

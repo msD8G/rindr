@@ -173,7 +173,8 @@ async function prepare(source, onStatus) {
 // Converters (HOOPS Exchange, …) hide the original program: then the beginning of the data is searched
 // for CATIA traces (CATPart/CATProduct names, e.g. 'Product1_AllCATPart').
 // Test/override: ?upAxis=z|y.
-const Z_UP_SYSTEMS = /CATIA|3DEXPERIENCE|\bNX\s*\d*\b|UNIGRAPHICS|SOLID\s*EDGE/i;
+// FreeCAD: Z up by convention (3D printing models such as test models lay on their side before)
+const Z_UP_SYSTEMS = /CATIA|3DEXPERIENCE|\bNX\s*\d*\b|UNIGRAPHICS|SOLID\s*EDGE|FREECAD/i;
 const Y_UP_SYSTEMS = /SOLID\s*WORKS|SWSTEP|INVENTOR|CREO|PRO\/?ENGINEER|FUSION/i;
 const CATIA_TRACES = /CAT(?:Part|Product)\b|CATIA/;
 const TRACE_SCAN_BYTES = 4 * 1024 * 1024;
