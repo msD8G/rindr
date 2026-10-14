@@ -31,6 +31,7 @@ Ein performater 3D Viewer im Browser der Qualitativ mit Keyshot oder Vray mithal
 - Konsole still (Wunsch des Nutzers): Info-Ausgaben nur über `debugLog()` aus `src/scripts/log.js` – erscheinen nur mit `?debug`; kein `console.log/info` direkt (Ausnahmen: `debug-stats.js`, `benchmark.js`, laufen nur mit `?debug`/`?bench`). `console.warn/error` bleiben.
 - Oberflächentexte nur über `src/i18n/de_de.json` + `en_us.json` (`t()` aus `i18n.js`), neue Schlüssel immer in beiden Dateien – Details: `docs/i18n.md`.
 - Neues Dateiformat = in allen Format-Texten nennen (Wunsch des Nutzers): `status.dropFormats` (Start-Hinweis), `page.drop.hint` (Drop-Fläche), `about.description` – de_de + en_us; neue Bibliotheken in `src/scripts/libraries.js` eintragen (+ `about.libs.<id>` in beiden Sprachdateien) – daraus entstehen „Über“ in der App und „Built with“ in der README (`scripts/sync-readme.mjs`, läuft automatisch vor jedem `npm run build`; README danach mit committen).
+- Lizenz: PolyForm Noncommercial 1.0.0 (`LICENSE.md`)
 - Große Modelle in `public/models/` und HDRIs in `public/hdr/` nicht committen (beide in .gitignore).
 - **Dokumentation:** Diese Datei ist Übersicht, Regeln und Ziele. Die Details stehen in `docs/` (Karte unten). Vor Arbeit an einem Bereich die passende Datei lesen; nach Änderungen dort nachtragen (Verhalten, Entscheidungen des Nutzers, verworfene Wege, Fallstricke, Prüfskripte) – hier nur, wenn es übergreifend ist.
 
