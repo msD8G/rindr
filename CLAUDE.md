@@ -45,7 +45,7 @@ Ein performater 3D Viewer im Browser der Qualitativ mit Keyshot oder Vray mithal
 | `docs/animation.md` | Animation und Morph Targets – `src/scripts/animation.js`. |
 | `docs/rendering.md` | Raster-Darstellung – Darstellungsarten, Batcher (`render-batcher.js`), Schatten, Einblenden, Hervorhebung, Schnittebene, eigene Render-Durchgänge. |
 | `docs/pathtracer.md` | Pathtracer (HQ) – `src/scripts/pathtracer.js` (three-gpu-pathtracer WebGPU, Vite-Patches in astro.config.mjs). |
-| `docs/camera-lens.md` | Kamera, Tiefenschärfe, Fisheye, Objektiv-Effekte – `dof.js`, `fisheye.js`, `lens-effects.js`, Kamera-Teile von `viewer.js`/`properties.js`. |
+| `docs/camera-lens.md` | Kamera, Tiefenschärfe, Fisheye, Objektiv-Effekte – `dof.js`, `fisheye.js`, `lens-effects.js`, `volume-shafts.js`, Kamera-Teile von `viewer.js`/`properties.js`. |
 | `docs/environment.md` | Umgebung, HDRI, Boden – `environment.js`, `ground.js`, `background-dome.js`, `contact-shadow.js`, `shadow-catcher.js`. |
 | `docs/materials.md` | Materialien und Node-Editor – `material-*.js`, `graph-apply.js`, `node-editor.js`. |
 | `docs/scene-state.md` | Szenen-Zustand, Speichern/Laden, Assets, Rückgängig – `scene-state.js`, `assets.js`, `history.js`, Teile von `viewer.js`. |

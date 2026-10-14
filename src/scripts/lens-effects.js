@@ -17,11 +17,10 @@
 //   (4 bilinear taps = 4×4 average, so small highlights are not lost),
 //   then per ray 3 "Kawase streak" passes (4 taps along the direction, spacing 1/4/16 texels,
 //   weight = decay^distance) and additively into an accumulation target. Length = decay.
-// - Light shafts ("god rays", like GPU Gems 3 "volumetric light scattering" in screen space): the path tracer
-//   knows no participating media, so the rays are an effect: bright parts of the image (threshold – the
-//   visible sun/bright sky; what an object covers is dark there) at ½ resolution, blurred radially towards the
-//   light centre (setShaftSource: brightest point of the HDRI projected into the image, viewer.js) in two
-//   passes of 48 samples, additively onto the image. Fades out when the light is behind the camera.
+// - Light shafts ("god rays") with real volume: volume-shafts.js – the air around the model is ray-marched
+//   against a depth map from the sun (brightest point of the HDRI): beams and shadow wedges from the 3D
+//   geometry, also with the sun outside the picture. Replaced the screen-space version (bright parts of the
+//   image blurred radially towards the sun, GPU Gems 3) in Oct. 2026.
 // - Lens flare: from the same light as the shafts (brightest point of the HDRI, setShaftSource), in the
 //   style of J. Chapman's "pseudo lens flare": bright parts of the image, only in a soft window around the
 //   light (the sun, its bright sky, edges cutting in) → 6 ghosts = copies of it in different sizes on the line
@@ -47,6 +46,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, texture, uniform, uv, vec2, vec3, vec4, float, dot, max, min, pow, length, mix, exp, smoothstep, cos, normalize } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { VolumeShafts } from './volume-shafts.js';
 
 const SPECTRUM = 9;
 // weights per spectral sample (t = 0 blue … 1 red), normalised to sum 1 per channel → white stays white
@@ -89,7 +89,7 @@ export class LensEffects {
         this.bloom = { enabled: false, strength: 0.6, radius: 0.5, threshold: 1 };
         this.chromatic = { enabled: false, strength: 0.5 };
         this.glare = { enabled: false, strength: 0.3, length: 0.4, rays: 6, rotation: 15, threshold: 4 };
-        this.shafts = { enabled: false, strength: 0.6, length: 0.6, threshold: 2 };
+        this.shafts = { enabled: false, strength: 0.6, length: 0.5, focus: 0.6 };
         this.flare = { enabled: false, strength: 0.6, spacing: 0.35, halo: 0.45, chromatic: 0.5, softness: 0.5 };
         this.look = { ...NEUTRAL_LOOK };
         this.neutralLook = false;   // transparent export: alpha passes without the look (viewer.js)
@@ -108,10 +108,8 @@ export class LensEffects {
             glareStrength: uniform(this.glare.strength),
             glareThreshold: uniform(this.glare.threshold),
             shaftsStrength: uniform(this.shafts.strength),
-            shaftsThreshold: uniform(this.shafts.threshold),
-            shaftsLength: uniform(this.shafts.length),
-            shaftsCenter: uniform(new THREE.Vector2(0.5, 0.5)),   // light centre in uv of the image
-            shaftsFade: uniform(0),                                // 0 = light behind the camera / none
+            shaftsCenter: uniform(new THREE.Vector2(0.5, 0.5)),   // light centre in uv of the image (lens flare)
+            shaftsFade: uniform(0),                                // 0 = light behind the camera / none (lens flare)
             flareStrength: uniform(this.flare.strength),
             flareVisible: uniform(0),                              // share of the light not covered (viewer)
             flareColor: uniform(new THREE.Color(1, 1, 1)),         // light colour (normalised)
@@ -159,8 +157,6 @@ export class LensEffects {
         u.glareStrength.value = this.glare.strength;
         u.glareThreshold.value = this.glare.threshold;
         u.shaftsStrength.value = this.shafts.strength;
-        u.shaftsThreshold.value = this.shafts.threshold;
-        u.shaftsLength.value = this.shafts.length;
         u.flareStrength.value = this.flare.strength;
         u.flareSpacing.value = this.flare.spacing;
         u.flareHalo.value = this.flare.halo;
@@ -186,7 +182,7 @@ export class LensEffects {
             out = vec4(out.rgb.add(this._bloomNode.rgb), 1);
         }
         if (this.glare.enabled) out = vec4(out.rgb.add(texture(this._glare.accum.texture).rgb.mul(u.glareStrength)), 1);
-        if (this.shafts.enabled) out = vec4(out.rgb.add(texture(this._shafts.b.texture).rgb.mul(u.shaftsStrength.mul(u.shaftsFade))), 1);
+        if (this.shafts.enabled) out = vec4(out.rgb.add(texture(this.volume.texture).rgb.mul(u.shaftsStrength)), 1);
         if (this.flare.enabled) out = vec4(out.rgb.add(texture(this._flare.target.texture).rgb.mul(u.flareStrength)), 1);
         if (this.lookActive) {
             // white balance, contrast around mid grey (power curve in linear = straight line in log), saturation
@@ -429,60 +425,18 @@ export class LensEffects {
     }
 
     _setupShafts() {
-        const rt = () => new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-        const sh = this._shafts = { bright: rt(), a: rt(), b: rt(), quad: new THREE.QuadMesh() };
-        sh.quad.name = 'LightShafts';
-        const src = this.input, u = this.u;
-        sh.texel = uniform(new THREE.Vector2());
-        // bright parts (4×4 average like the glare), clamped (the sun itself is thousands of times brighter)
-        sh.brightMaterial = new THREE.NodeMaterial();
-        sh.brightMaterial.fragmentNode = Fn(() => {
-            const p = uv(), o = sh.texel;
-            const c = src.sample(p.add(vec2(o.x.negate(), o.y.negate()))).rgb
-                .add(src.sample(p.add(vec2(o.x, o.y.negate()))).rgb)
-                .add(src.sample(p.add(vec2(o.x.negate(), o.y))).rgb)
-                .add(src.sample(p.add(o)).rgb).mul(0.25);
-            const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-            const k = min(max(l.sub(u.shaftsThreshold), 0), 20).div(max(l, 1e-4));
-            return vec4(c.mul(k), 1);
-        })();
-        // radial blur towards the centre: 48 samples, the second pass with 1/48 of the step of the first
-        // (together 2304 effective samples without banding); weights decay along the way (same falloff
-        // over the length as the earlier 32 samples × 0.97)
-        const SAMPLES = 48;
-        sh.source = texture(null);
-        sh.scale = uniform(1);
-        sh.samples = SAMPLES;
-        const blur = Fn(() => {
-            const p = uv();
-            const delta = p.sub(u.shaftsCenter).mul(u.shaftsLength.mul(0.95).mul(sh.scale).div(SAMPLES));
-            const sum = vec3(0).toVar();
-            let wsum = 0;
-            for (let i = 0; i < SAMPLES; i++) {
-                const w = Math.pow(0.97, i * 32 / SAMPLES);
-                sum.addAssign(sh.source.sample(p.sub(delta.mul(i))).rgb.mul(w));
-                wsum += w;
-            }
-            return vec4(sum.div(wsum), 1);
-        })();
-        sh.blurMaterial = new THREE.NodeMaterial();
-        sh.blurMaterial.fragmentNode = blur;
+        this.volume = new VolumeShafts();
+        this.sceneContext = null;   // () => { scene, camera, bounds, modelSize, hide, ground } – viewer.js
     }
 
     _renderShafts() {
-        const r = this.renderer, sh = this._shafts;
-        // half resolution (¼ looked coarse at the edges of objects cutting into the light)
-        const d = 2 * this.pixelScale, w = Math.max(1, Math.floor(this.target.width / d)), h = Math.max(1, Math.floor(this.target.height / d));
-        for (const t of [sh.bright, sh.a, sh.b]) if (t.width !== w || t.height !== h) t.setSize(w, h);
-        const autoClear = r.autoClear;
-        r.autoClear = true;
-        const draw = (target, material) => { r.setRenderTarget(target); sh.quad.material = material; sh.quad.render(r); };
-        sh.texel.value.set(this.pixelScale / this.target.width, this.pixelScale / this.target.height);
-        draw(sh.bright, sh.brightMaterial);
-        sh.source.value = sh.bright.texture; sh.scale.value = 1; draw(sh.a, sh.blurMaterial);
-        sh.source.value = sh.a.texture; sh.scale.value = 1 / sh.samples; draw(sh.b, sh.blurMaterial);
-        r.autoClear = autoClear;
+        const ctx = this.sceneContext?.();
+        if (!ctx) return;
+        // screen resolution (march at half of it), relative to the screen version on exports (pixelScale)
+        const d = this.pixelScale, w = Math.max(1, Math.floor(this.target.width / d)), h = Math.max(1, Math.floor(this.target.height / d));
+        this.volume.render(this.renderer, ctx, w, h, this.shafts);
     }
+
 
     toJSON() {
         return { bloom: { ...this.bloom }, chromatic: { ...this.chromatic }, glare: { ...this.glare }, shafts: { ...this.shafts },
@@ -495,6 +449,7 @@ export class LensEffects {
         Object.assign(this.chromatic, { enabled: false }, s.chromatic);
         Object.assign(this.glare, { enabled: false }, s.glare);
         Object.assign(this.shafts, { enabled: false }, s.shafts);
+        delete this.shafts.threshold;   // older scenes (screen-space shafts from bright parts of the image)
         Object.assign(this.flare, { enabled: false }, s.flare);
         delete this.flare.threshold;   // older scenes (visibility came from image brightness)
         Object.assign(this.look, NEUTRAL_LOOK, s.look);

@@ -236,6 +236,7 @@ let shadowInputs = '';
 let shadowsOn = true;   // false in Basic (setViewMode) – own flag: material events can fire before viewMode exists
 const shadowsWanted = () => shadowsOn;
 function markShadowsDirty() {
+    lens.volume.markDirty();   // volumetric light shafts: sun depth map (also in Basic)
     if (!shadowsWanted()) return;
     for (const light of [dirLight1, dirLight2]) light.shadow.needsUpdate = true;
 }
@@ -1340,6 +1341,8 @@ function updateSceneExtent() {
     const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
     const sceneSize = Math.max(size.x, size.y, size.z);
     environment.modelSize = sceneSize;
+    box.getBoundingSphere(shaftBounds);
+    lens.volume.markDirty();
     environment.centerX = center.x;
     environment.centerZ = center.z;
     slicer.setModelSize(sceneSize);
@@ -1903,8 +1906,16 @@ function sunVisibility(dir) {
     return open / SUN_TAPS.length;
 }
 const _shaftDir = new THREE.Vector3(), _shaftPoint = new THREE.Vector3(), _shaftForward = new THREE.Vector3(), _shaftMatrix = new THREE.Matrix4(), _shaftNdc = new THREE.Vector2();
+const _shaftLight = new THREE.Vector3(), _shaftColor = new THREE.Color();
+const shaftBounds = new THREE.Sphere(new THREE.Vector3(), 0);   // whole scene (updateSceneExtent)
+// volumetric light shafts (volume-shafts.js): scene, camera and what stays out of the depth passes
+lens.sceneContext = () => ({
+    scene, camera, bounds: rootGroup ? shaftBounds : null, modelSize: environment.modelSize,
+    hide: splatMesh ? [splatMesh] : [], ground: ground.enabled ? ground.mesh : null,
+});
 function updateShaftSource() {
     const dir = environment.on ? brightestDirection(environment.texture) : null;
+    lens.volume.setLight(null);
     if (!dir) { lens.setShaftSource(0.5, 0.5, 0); return; }
     _shaftDir.copy(dir);
     // shown shifted on the dome: latitude back through the remap (texture latitude → visible latitude)
@@ -1916,6 +1927,11 @@ function updateShaftSource() {
         _shaftDir.set(_shaftDir.x / hz * Math.cos(vis), Math.sin(vis), _shaftDir.z / hz * Math.cos(vis));
     }
     _shaftDir.applyMatrix4(_shaftMatrix.makeRotationFromEuler(scene.environmentRotation)).normalize();
+    // volumetric shafts: the real light direction (without the visible background's latitude shift)
+    if (lens.shafts.enabled) {
+        _shaftLight.copy(dir).applyMatrix4(_shaftMatrix).normalize();
+        lens.volume.setLight(_shaftLight, _shaftColor.copy(dir.color).multiplyScalar(environment.intensity));
+    }
     if (lens.flare.enabled) lens.setFlareSource(sunVisibility(_shaftDir), dir.color);
     // fisheye: project with its mapping (the light may lie far to the side or even behind)
     if (fisheyeEnabled()) {

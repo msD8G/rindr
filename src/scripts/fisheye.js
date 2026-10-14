@@ -80,6 +80,18 @@ export function setFisheye(camera) {
     return true;
 }
 
+/** TSL: camera-space fisheye direction (−Z forward) at an NDC point – same formula as fisheyeLocalDirection */
+export function fisheyeDirectionNode(ndc) {
+    const q = vec2(ndc.x.mul(U.aspect), ndc.y);
+    const len = q.length();
+    const theta = U.k.mul(len.mul(TAN_LIMIT).atan()).min(Math.PI);
+    const side = q.div(len.max(1e-6));
+    return vec3(side.mul(theta.sin()), theta.cos().negate());
+}
+
+/** TSL: fisheye on (k > 1 – the view angle is above PERSPECTIVE_LIMIT) */
+export const fisheyeOnNode = () => U.k.greaterThan(1);
+
 // ray: three-mesh-bvh ray struct – set to the fisheye ray from the camera origin when enabled (returns true).
 // The return type is required: three.js' WGSL parser rejects functions without one.
 export const FISHEYE_RAY = wgslTagFn/* wgsl */`
@@ -115,12 +127,7 @@ export class RasterFisheye {
         this.envNode = cubeTexture(this.target.texture);
         const color = Fn(() => {
             const ndc = vec2(screenUV.x.mul(2).sub(1), screenUV.y.mul(-2).add(1));
-            const q = vec2(ndc.x.mul(U.aspect), ndc.y);
-            const len = q.length();
-            const theta = U.k.mul(len.mul(TAN_LIMIT).atan()).min(Math.PI);
-            const side = q.div(len.max(1e-6));
-            const local = vec3(side.mul(theta.sin()), theta.cos().negate());
-            const dir = this.rotation.mul(vec4(local, 0)).xyz;
+            const dir = this.rotation.mul(vec4(fisheyeDirectionNode(ndc), 0)).xyz;
             return this.envNode.sample(dir);
         })();
         const material = (blending, opacity) => {

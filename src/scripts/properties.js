@@ -264,7 +264,7 @@ export class PropertiesPanel {
         return rows;
     }
 
-    // Light shafts from the HDRI (lens effect, all view modes): strength/length/threshold; source = brightest point
+    // Volumetric light shafts (volume-shafts.js, all view modes): strength/reach/focus; source = brightest point
     _shaftsSection() {
         const { lens } = this.ctx;
         if (!lens) return [];
@@ -274,12 +274,14 @@ export class PropertiesPanel {
             set(t('properties.lens.undo.shafts'), 'enabled')(v);
             this.show(this.entry);
         }, () => {
-            const th = this._rangeRow(t('properties.lens.threshold'), sh.threshold, 0, 10, 0.01, set(t('properties.lens.undo.shaftsThreshold'), 'threshold', 'shafts-threshold'));
-            th.title = t('properties.lens.shaftsThresholdTitle');
+            const length = this._rangeRow(t('properties.lens.length'), sh.length, 0, 1, 0.01, set(t('properties.lens.undo.shaftsLength'), 'length', 'shafts-length'));
+            length.title = t('properties.lens.shaftsLengthTitle');
+            const focus = this._rangeRow(t('properties.lens.shaftsFocus'), sh.focus, 0, 0.95, 0.01, set(t('properties.lens.undo.shaftsFocus'), 'focus', 'shafts-focus'));
+            focus.title = t('properties.lens.shaftsFocusTitle');
             return [
                 this._rangeRow(t('properties.lens.strength'), sh.strength, 0, 3, 0.01, set(t('properties.lens.undo.shaftsStrength'), 'strength', 'shafts-strength')),
-                this._rangeRow(t('properties.lens.length'), sh.length, 0, 1, 0.01, set(t('properties.lens.undo.shaftsLength'), 'length', 'shafts-length')),
-                th,
+                length,
+                focus,
             ];
         });
     }
