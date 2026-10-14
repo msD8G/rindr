@@ -6,6 +6,7 @@
 import { boxUVs, buildGeometryBVHs, UV_TILE } from '../step-importer.js';
 import { readZip } from '../splat/splat-formats.js';
 import { t, has } from '../i18n.js';
+import { debugLog } from '../log.js';
 
 export const IFC_EXTENSIONS = ['ifc', 'ifczip'];
 const MM = 1000;
@@ -49,7 +50,7 @@ export async function importIfc(source, { materialManager, onStatus = () => {}, 
     });
     const t1 = performance.now();
     if (bvh) await buildGeometryBVHs(geometries, onStatus);
-    console.info('[Import] IFC', { ...stats, nodes: nodes.length, geometries: geometries.length, meshes: meshes.length, materials: styles.length,
+    debugLog('[Import] IFC', { ...stats, nodes: nodes.length, geometries: geometries.length, meshes: meshes.length, materials: styles.length,
         loadMs: Math.round(t1 - t0), bvhMs: Math.round(performance.now() - t1) });
     return {
         nodes, geometries, meshes, missing: [],

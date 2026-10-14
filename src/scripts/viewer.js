@@ -43,6 +43,7 @@ import { buildAbout } from './about.js';
 import { SplatMesh } from './splat/splat-mesh.js';
 import { loadSplats, isSplatSource, SPLAT_EXTENSIONS } from './splat/splat-loader.js';
 import { analyzeSplatScene } from './splat/splat-camera.js';
+import { debugLog } from './log.js';
 
 // Workaround three.js r186 (cf. mrdoob/three.js#34608, fix announced for r187):
 // ViewportTextureNode creates its own framebuffer texture per render target via clone()
@@ -1799,7 +1800,7 @@ async function retessellateParts() {
         const byKey = new Map(currentMeshes.map(m => [m.userData.key, m]));
         const oldKeys = currentMeshes.filter(m => changed.has(plan.instances[m.userData.instance]?.solid)).map(m => m.userData.key);
         if (oldKeys.length !== result.meshes.length || result.meshes.some(m => !byKey.has(m.key))) {
-            console.info('[STEP] part quality: face groups changed – re-tessellating completely');
+            debugLog('[STEP] part quality: face groups changed – re-tessellating completely');
             hideProgress();
             runLoad('reload');
             return;
@@ -2990,7 +2991,7 @@ async function loadModel(reload = false) {
         streamFit.active = false;
         loadRender.active = false;
         // aborted (new model dropped): clean up silently, the new one loads right away
-        if (err.name === 'AbortError') console.info('[Load] aborted:', model.name);
+        if (err.name === 'AbortError') debugLog('[Load] aborted:', model.name);
         else if (err instanceof MissingFilesError || model.incomplete) registerIncomplete(model, err, mainSceneIndex);
         else if (err instanceof ImportLimitError) showLimitError(err, reload ? 'reload' : 'open');
         else { console.error(err); showStatus(t('status.error', { message: err.message })); }
@@ -3099,7 +3100,7 @@ async function loadSplatScene() {
             cancelFlight();
             flight = { t0: performance.now(), duration: 1200, quiet: true, fromPos: camera.position.clone(), fromTarget: controls.target.clone(), toPos: room.eye, toTarget: lookAt };
         } else if (room) fitCamera(root.userData.unmovedBox);
-        if (room) console.info(`[Splats] camera ${room.indoor ? 'inside (room)' : splat.data.unbounded ? 'around the core (outdoor capture)' : 'outside (object)'}`);
+        if (room) debugLog(`[Splats] camera ${room.indoor ? 'inside (room)' : splat.data.unbounded ? 'around the core (outdoor capture)' : 'outside (object)'}`);
         const period = room && SPLATS.autoRotate?.[room.indoor ? 'indoor' : 'object'];
         if (period > 0) Object.assign(splatSpin, { active: true, period, last: 0 });
         streamFit.active = false;
@@ -3107,13 +3108,13 @@ async function loadSplatScene() {
         setupGUI();
         qualityController.enable(false);
         assetsWindow.refresh();
-        console.info(`[Splats] ${model.name}: ${data.count} splats (${data.format}), SH coefficients ${data.shCoeffs}/${data.fileShCoeffs}`);
+        debugLog(`[Splats] ${model.name}: ${data.count} splats (${data.format}), SH coefficients ${data.shCoeffs}/${data.fileShCoeffs}`);
         flashStatus(t('status.splatsLoaded', { count: formatCount(data.count) }), 3000);
     } catch (err) {
         streamFit.active = false;
         hideProgress();
         if (buildError) err = buildError;
-        if (err.name === 'AbortError') console.info('[Load] aborted:', model.name);
+        if (err.name === 'AbortError') debugLog('[Load] aborted:', model.name);
         else { console.error(err); showStatus(t('status.error', { message: err.message })); }
         if (root === rootGroup) clearModel(); else disposeRoot(root);
         if (!rootGroup) { primaryContent = null; refreshSceneGraph(); setViewMode(viewMode); }

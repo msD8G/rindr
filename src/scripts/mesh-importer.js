@@ -8,6 +8,7 @@
 import * as THREE from 'three/webgpu';
 import { boxUVs, buildGeometryBVHs, orientTrianglesIsolated, UV_TILE } from './step-importer.js';
 import { t } from './i18n.js';
+import { debugLog } from './log.js';
 
 // IFC (BIM) goes the same way but has its own importer (ifc/ifc-importer.js, web-ifc – loaded on demand)
 export const MESH_EXTENSIONS = ['glb', 'gltf', 'fbx', 'stl', 'ifc', 'ifczip'];
@@ -71,7 +72,7 @@ export async function importMeshFile(source, { renderer, materialManager, onStat
         missingFiles: [...missing], loadMs: Math.round(t1 - t0), bvhMs: Math.round(performance.now() - t1),
     };
     result.missing = [...missing];
-    console.info('[Import]', result.stats);
+    debugLog('[Import]', result.stats);
     return result;
 }
 
@@ -148,7 +149,7 @@ async function load(source, ext, renderer, onStatus = () => {}) {
                 onStatus(t('import.mesh.orienting'));
                 const r = await orientTrianglesIsolated(pos.array);
                 geometry.setAttribute('position', new THREE.BufferAttribute(r.positions, 3));
-                console.info('[STL] orientation:', r.stats);
+                debugLog('[STL] orientation:', r.stats);
             }
             const mesh = new THREE.Mesh(geometry, DEFAULT_MATERIAL);
             mesh.name = source.name.replace(/\.[^.]+$/, '');
@@ -262,7 +263,7 @@ function meshUpAxis(geometry, header) {
         if (onFloor('z') !== onFloor('y')) { up = onFloor('z') ? 'z' : 'y'; reason = 'floor'; }
         else if (centred('z') !== centred('y')) { up = centred('z') ? 'y' : 'z'; reason = 'centred'; }
     }
-    console.info(`[Import] up axis ${up.toUpperCase()} (${reason})`);
+    debugLog(`[Import] up axis ${up.toUpperCase()} (${reason})`);
     return up;
 }
 

@@ -17,6 +17,7 @@
 import { t, getLocale } from './i18n.js';
 import { Matrix4 } from 'three';
 import { Instancer } from './instancer.js';
+import { debugLog } from './log.js';
 
 // Tessellation quality levels:
 //   rel = chord error relative to the solid diagonal, ang = max. angle between normals (rad)
@@ -138,7 +139,7 @@ async function prepare(source, onStatus) {
         const [first, ...rest] = pool.workers;
         const t0 = performance.now();
         const res = await pool.request(first, { type: 'index', bytes: shared ? bytes.buffer : source.slice().buffer, shared });
-        console.info(`[STEP] Index + structure: ${res.entityCount} entities, ${res.plan.solids.length} solids, ` +
+        debugLog(`[STEP] Index + structure: ${res.entityCount} entities, ${res.plan.solids.length} solids, ` +
             `${res.plan.instances.length} instances in ${(performance.now() - t0).toFixed(0)} ms ` +
             `(${pool.workers.length} workers, ${shared ? 'SharedArrayBuffer' : 'copy per worker'})`);
         // default names of unnamed nodes come from the worker as autoName (no i18n there)
@@ -218,7 +219,7 @@ function orientUpAxis(plan, bytes) {
     }
     plan.upAxis = up;
     plan.originatingSystem = header.system || header.preprocessor;
-    console.info(`[STEP] Originating system: "${header.system}" (${header.preprocessor}) → ${up === 'z' ? '+Z up, rotated to +Y up' : '+Y up'} (${reason})`);
+    debugLog(`[STEP] Originating system: "${header.system}" (${header.preprocessor}) → ${up === 'z' ? '+Z up, rotated to +Y up' : '+Y up'} (${reason})`);
     if (up !== 'z') return;
     // R · M with R = rotation −90° about X (column-major): row y ← z, row z ← −y
     for (const inst of plan.instances) {
@@ -272,7 +273,7 @@ export async function tessellateStep(content, quality, onStatus = () => {}, { bv
                 if (!limits.auto || estimate <= limits.budget || !coarser) break;
                 quality = coarser;
             }
-            console.info(`[STEP] Estimate from ${sample.count} sample faces: ` +
+            debugLog(`[STEP] Estimate from ${sample.count} sample faces: ` +
                 Object.entries(estimates).map(([q, n]) => `"${q}" ~${Math.round(n).toLocaleString('en')}`).join(', ') +
                 ` triangles (budget ${limits.budget.toLocaleString('en')}, limit ${limits.limit.toLocaleString('en')})`);
             if (estimate > limits.limit) throw new ImportLimitError(estimate, limits.limit, quality, false);
@@ -421,8 +422,8 @@ export async function tessellateStep(content, quality, onStatus = () => {}, { bv
         bvhMs: Math.round(bvhMs),             // sum over all workers
         ...instancer?.stats,                  // instanced geometries / triangles no longer stored
     };
-    console.info('[STEP] Tessellation:', stats);
-    if (flippedFaces) console.info(`[STEP] Orientation repaired: ${flippedFaces} faces in ${flippedSolids} solids flipped (inconsistent same_sense or inward-facing surface model)`);
+    debugLog('[STEP] Tessellation:', stats);
+    if (flippedFaces) debugLog(`[STEP] Orientation repaired: ${flippedFaces} faces in ${flippedSolids} solids flipped (inconsistent same_sense or inward-facing surface model)`);
     return { geometries, meshes, nodes: plan.nodes, stats, quality, estimates };
 }
 

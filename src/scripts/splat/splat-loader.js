@@ -1,6 +1,7 @@
 // Main-thread side of the Gaussian splat import: file type detection and loading in a worker
 // (splat-load-worker.js). Aborting terminates the worker.
 import { plyHeaderOf, parsePlyHeader, plyKind, splatPlyLayout, samplePly, keptShCoeffs, SplatBuilder, beginInfo, finishStats } from './splat-formats.js';
+import { debugLog } from '../log.js';
 
 export const SPLAT_EXTENSIONS = ['ply', 'sog'];
 const extOf = name => name.split('.').pop().toLowerCase();
@@ -142,7 +143,7 @@ async function loadPlyParallel(source, { signal, onProgress, onBegin, onLoaded, 
         clearTimeout(timer);
         done.forEach((_, w) => { done[w] = ranges[w][1] - ranges[w][0]; });
         report();
-        console.info(`[Splats] parsed ${count} splats with ${n} workers in ${Math.round(performance.now() - t0)} ms`);
+        debugLog(`[Splats] parsed ${count} splats with ${n} workers in ${Math.round(performance.now() - t0)} ms`);
         return finishStats(builder, stats, { format: 'ply', fileShCoeffs: fileCoeffs });
     } finally {
         clearTimeout(timer);

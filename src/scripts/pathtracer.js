@@ -12,6 +12,7 @@
 import { Vector2 } from 'three/webgpu';
 import { PATHTRACING } from './config.js';   // defaults (samples, resolution, bounces, …)
 import { t } from './i18n.js';
+import { debugLog } from './log.js';
 
 export class PathTracingView {
     constructor(renderer, { denoiseWeightsUrl }) {
@@ -80,7 +81,7 @@ export class PathTracingView {
         this.upscaler.sharpness = s.sharpness;
         pt.setDenoiser(this.denoiseEnabled ? this.denoiser : null);
         pt.setUpscaler(this.upscaleEnabled ? this.upscaler : null);
-        console.info(`[Pathtracer] created in ${(performance.now() - t0).toFixed(0)} ms`);
+        debugLog(`[Pathtracer] created in ${(performance.now() - t0).toFixed(0)} ms`);
     }
 
     /** FSR sharpness (setup menu) */
@@ -166,7 +167,7 @@ export class PathTracingView {
             this.pathTracer.maxBounces = this.bounces;
             this.pathTracer.frameBudget = PATHTRACING.frameBudget;
             this._firstSample = performance.now();
-            console.info(`[Pathtracer] scene set up in ${(this._firstSample - t0).toFixed(0)} ms (main thread)`);
+            debugLog(`[Pathtracer] scene set up in ${(this._firstSample - t0).toFixed(0)} ms (main thread)`);
         } finally {
             this.building = false;
         }
@@ -339,9 +340,9 @@ export class PathTracingView {
             // GPU process – only onSubmittedWorkDone() shows when the GPU is really done.
             const start = this._firstSample;
             this._firstSample = 0;
-            console.info(`[Pathtracer] first sample submitted after ${(performance.now() - start).toFixed(0)} ms (main thread)`);
+            debugLog(`[Pathtracer] first sample submitted after ${(performance.now() - start).toFixed(0)} ms (main thread)`);
             this.renderer.backend?.device?.queue.onSubmittedWorkDone()
-                .then(() => console.info(`[Pathtracer] first sample finished on the GPU after ${(performance.now() - start).toFixed(0)} ms (incl. shader compilation)`));
+                .then(() => debugLog(`[Pathtracer] first sample finished on the GPU after ${(performance.now() - start).toFixed(0)} ms (incl. shader compilation)`));
         }
         if (pt.fadeState < 1) rasterize();
 
