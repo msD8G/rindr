@@ -7,7 +7,7 @@ import { HdriRenderService } from './hdri/hdri-service.js';
 import { studioPreset, cloneHdri } from './hdri/hdri-model.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { TESS_PRESETS, normalizeQuality, abortStepImport, buildBVHIsolated, fetchStepFile, readStepFile, releaseStepFile, tessellateStep, ImportLimitError } from './step-importer.js';
-import { IMPORT, KI, SPLATS, RASTER } from './config.js';
+import { IMPORT, KI, SPLATS, RASTER, SCENE } from './config.js';
 import { importMeshFile, MissingFilesError, MESH_EXTENSIONS } from './mesh-importer.js';
 import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
@@ -2416,8 +2416,11 @@ const imageExport = createImageExport({
     maxSize: maxExportSize,
 });
 viewModeBar.addTool({ icon: ICON_IMAGE, title: t('toolbar.exportImage'), onClick: () => { if (rootGroup) imageExport.open(); else showStatus(t('status.loadModelFirst')); }, group: 'scene' });
-viewModeBar.addTool({ icon: ICON_SAVE, title: t('toolbar.saveScene'), onClick: () => saveScene(), group: 'scene' });
-viewModeBar.addTool({ icon: ICON_OPEN, title: t('toolbar.loadScene'), onClick: () => sceneFileInput.click(), group: 'scene' });
+// save/open scene: hidden for now (config.js SCENE.saveOpen)
+if (SCENE.saveOpen) {
+    viewModeBar.addTool({ icon: ICON_SAVE, title: t('toolbar.saveScene'), onClick: () => saveScene(), group: 'scene' });
+    viewModeBar.addTool({ icon: ICON_OPEN, title: t('toolbar.loadScene'), onClick: () => sceneFileInput.click(), group: 'scene' });
+}
 // asset window (links): which files the scene uses, relink missing ones
 assetsWindow = createAssetsWindow({ rows: () => assetRows(), onFiles: files => relinkFiles(files) });
 const ICON_ASSETS = '<svg viewBox="0 0 16 16" class="size-4 fill-none stroke-current" stroke-width="1.4" stroke-linecap="round"><path d="M6.5 9.5l3-3"/><path d="M7 4.5l1.3-1.3a2.5 2.5 0 0 1 3.5 3.5L10.5 8"/><path d="M9 11.5l-1.3 1.3a2.5 2.5 0 0 1-3.5-3.5L5.5 8"/></svg>';

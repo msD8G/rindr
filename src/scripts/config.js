@@ -49,6 +49,12 @@ export const MATERIALS = {
     importExport: false,   // JSON import/export buttons in the material panel (comes back later)
 };
 
+// Scene files: "save scene" / "open scene" buttons in the toolbar hidden for now (still buggy, user Oct. 2026 –
+// comes back later). Saving/restoring code stays; dropping a scene file still opens it.
+export const SCENE = {
+    saveOpen: false,
+};
+
 // Opening large models (STEP): protection against running out of memory. Before tessellating, the
 // triangle count is estimated from a sample of the faces (unique triangles – instances share geometry).
 export const IMPORT = {
