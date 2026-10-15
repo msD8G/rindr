@@ -16,6 +16,7 @@ import { PATHTRACING } from './config.js';   // defaults (samples, resolution, b
 import { isEnvCdfReady, prepareEnvCdf } from './env-cdf.js';
 import { compileAsync } from './shader-compile.js';
 import { KuwaharaFilter } from './kuwahara.js';
+import { PT_MOTION } from './pt-motion.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
@@ -516,6 +517,8 @@ export class PathTracingView {
         this._motion = { saved: { renderScale: pt.renderScale, bounces: this.bounces, minSamples: pt.minSamples }, end: 0 };
         pt.renderScale = Math.min(this.motion.renderScale, pt.renderScale);
         pt.maxBounces = Math.min(this.motion.bounces, this.bounces);
+        // glass keeps the bounces of standing still (refractions within this budget are not counted, pt-motion.js)
+        PT_MOTION.glassBounces.value = Math.max(this.bounces - pt.maxBounces, 0);
         pt.minSamples = 0;   // show immediately (otherwise the raster image covers it until the first sample is counted)
     }
 
@@ -526,6 +529,7 @@ export class PathTracingView {
         const pt = this.pathTracer;
         pt.renderScale = m.saved.renderScale;
         pt.maxBounces = this.bounces;
+        PT_MOTION.glassBounces.value = 0;
         // show the first full sample immediately instead of the raster image (see _renderFirstSample)
         this._fullFirst = true;
         this._fullFirstMin = m.saved.minSamples;

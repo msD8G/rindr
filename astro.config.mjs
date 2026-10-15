@@ -184,6 +184,28 @@ function ptStandInPatch() {
   };
 }
 
+// Glass while orbiting (src/scripts/pt-motion.js): refractions up to PT_MOTION.glassBounces do not use up the bounce
+// budget of the megakernel – with the 3 bounces of the motion mode glass was black (fails loudly if the library
+// changed, check on every update).
+const PT_MOTION_MODULE = fileURLToPath(new URL('./src/scripts/pt-motion.js', import.meta.url));
+function glassBouncesPatch() {
+  return {
+    name: 'rindr-glass-bounces',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.replace(/\\/g, '/').split('?')[0];
+      if (!file.endsWith('three-gpu-pathtracer/src/webgpu/compute/PathTracerMegaKernel.js')) return null;
+      const loop = /\n(\t+)for \( var bounce = 0u; bounce < maxBounces; bounce \+\+ \) \{/;
+      const next = /\n(\t+)ray\.origin = \$\{ offsetRayOriginFunc \}\( vertexData\.position\.xyz, scatterRec\.direction, hitResult\.normal \);/;
+      for (const re of [loop, next]) if ((code.match(new RegExp(re.source, 'g')) || []).length !== 1) this.error(`rindr-glass-bounces: ${re} not found exactly once in PathTracerMegaKernel.js`);
+      code = code.replace(loop, m => '\n\t\t\t\tvar glassBounce = 0u;' + m);
+      // end of the iteration (after Russian roulette): a refraction within the glass budget gives its bounce back
+      code = code.replace(next, (m, tab) => `\n${tab}if ( scatterRec.isTransmissive && glassBounce < \${ __PT_MOTION.glassBounces } ) {\n\n${tab}\tglassBounce ++;\n${tab}\tbounce --;\n\n${tab}}\n` + m);
+      return { code: `import { PT_MOTION as __PT_MOTION } from ${JSON.stringify(PT_MOTION_MODULE)};\n` + code, map: null };
+    },
+  };
+}
+
 // Cross-origin isolation: required for SharedArrayBuffer so three-mesh-bvh can build the BVH
 // in parallel on several workers (= CPU cores). In production public/.htaccess sets the
 // same headers.
@@ -208,7 +230,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch(), glassBouncesPatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },
