@@ -11,7 +11,7 @@
 // centre `height` above the ground (fine near the model, coarse far away); uv.v depends only on the radius,
 // so a 1-pixel-wide alpha texture along v is enough (the path tracer supports alphaMap, green channel).
 import * as THREE from 'three/webgpu';
-import { texture } from 'three/tsl';
+import { texture, uniform } from 'three/tsl';
 import { updateShadowCatcher } from './shadow-catcher.js';
 
 const RINGS = 384;         // elevation steps (fine, otherwise kinks in the gradient -> rings on the ground)
@@ -28,7 +28,8 @@ export class GroundProjection {
         this.material = new THREE.ShadowNodeMaterial({ transparent: true, opacity: 1 });
         this.material.matte = true;
         this._fadeNode = texture(new THREE.Texture());   // raster: same radial fade as the alpha map
-        this.material.opacityNode = this._fadeNode.g.mul(RASTER_SHADOW_OPACITY);
+        this._shadowOn = uniform(1);   // 0: disc only for the ground reflection (ground-reflection.js), no shadow
+        this.material.opacityNode = this._fadeNode.g.mul(RASTER_SHADOW_OPACITY).mul(this._shadowOn);
         this.mesh = new THREE.Mesh(createGeometry(), this.material);
         this.mesh.name = 'GroundProjection';
         this.mesh.receiveShadow = true;
@@ -41,6 +42,12 @@ export class GroundProjection {
         this._irradiance = null;  // E of the HDRI upper hemisphere (without environmentIntensity)
         this._texture = null;
         this._fadeKey = '';
+    }
+
+    /** Shadow shown (false: the disc is only there for the ground reflection / puddles) */
+    set shadow(v) {
+        this._shadowOn.value = v ? 1 : 0;
+        this.strength = v ? 1 : 0;
     }
 
     get enabled() {

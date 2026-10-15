@@ -1,7 +1,8 @@
 // Properties panel for the selected scene-graph entry.
 //  - Model/assembly/part: translation + rotation (XYZ), gizmo mode, reset
 //  - Light: position (XYZ), intensity, colour
-//  - Environment: intensity, rotation, show background, ground shadow, flatten ground (+ capture height)
+//  - Environment: intensity, rotation, show background, ground shadow, ground reflection, bad weather (puddles),
+//    flatten ground (+ capture height)
 //  - Camera: focal length (FOV)
 //  - Section plane: position + rotation, axis X/Y/Z, flip side, colour of the cut surface
 import { viewAngle, setViewAngle, PERSPECTIVE_LIMIT, MAX_VIEW_ANGLE } from './fisheye.js';
@@ -298,30 +299,36 @@ export class PropertiesPanel {
                 this._tracked(t('properties.environment.undo.background'), null, () => env.background, bg => { env.background = bg; this.ctx.onEnvironmentChange(); })(v);
                 this.show(this.entry);
             }),
-            this._checkRow(t('properties.environment.ground'), t('properties.environment.groundTitle'), env.ground, v => {
-                this._tracked(t('properties.environment.undo.ground'), null, () => env.ground, g => { env.ground = g; this.ctx.onEnvironmentChange(); })(v);
-                this.show(this.entry);
-            }),
-            this._checkRow(t('properties.environment.dome'), t('properties.environment.domeTitle'), env.dome, v => {
-                this._tracked(t('properties.environment.undo.dome'), null, () => env.dome, d => { env.dome = d; this.ctx.onEnvironmentChange({ params: true }); })(v);
-                this.show(this.entry);
-            }),
         ];
-        // flattened ground: HDRI height, floor height (distortion), sphere size (= where the floor ends),
-        // transition (rounded edge); size + softness belong to the ground shadow
-        const slider = (key, label, undo, mergeKey, min, max, step, options = { params: true }) =>
-            rows.push(this._rangeRow(t(label), env[key], min, max, step, this._tracked(t(undo), mergeKey,
-                () => env[key], v => { env[key] = v; this.ctx.onEnvironmentChange(options); }), this._dragHooks()));
-        if (env.dome) {
-            slider('domeShift', 'properties.environment.height', 'properties.environment.undo.height', 'env-dome-shift', -0.5, 0.9, 0.01);
-            slider('groundHeight', 'properties.environment.floorHeight', 'properties.environment.undo.floorHeight', 'env-floor-height', 0.05, 5, 0.01);
-            slider('domeRadius', 'properties.environment.sphere', 'properties.environment.undo.sphere', 'env-dome-size', 1, 50, 0.5);
-            slider('domeBlend', 'properties.environment.blend', 'properties.environment.undo.blend', 'env-dome-blend', 0, 1, 0.01);
-        }
-        if (env.ground) {
-            slider('groundRadius', 'properties.environment.size', 'properties.environment.undo.size', 'env-ground-size', 0.001, 10, 0.001, { geometry: true, params: true });
-            slider('groundSoftness', 'properties.environment.softness', 'properties.environment.undo.softness', 'env-ground-softness', 0, 1, 0.01, { geometry: true, params: true });
-        }
+        // ground shadow, flattened ground, reflection, bad weather: each a collapsible section with its sliders
+        // (sliders of a section that is off stay reachable, dimmed). Size + softness = soft edge of the ground disc –
+        // also for reflection and puddles. Reflection and bad weather only in HQ (path tracer).
+        const range = (key, label, undo, mergeKey, min, max, step, options = { params: true }) =>
+            this._rangeRow(t(label), env[key], min, max, step, this._tracked(t(undo), mergeKey,
+                () => env[key], v => { env[key] = v; this.ctx.onEnvironmentChange(options); }), this._dragHooks());
+        const section = (id, key, options, build) => rows.push(...this._section(id, t(`properties.environment.${key}`), t(`properties.environment.${key}Title`), env[key], v => {
+            this._tracked(t(`properties.environment.undo.${key}`), null, () => env[key], x => { env[key] = x; this.ctx.onEnvironmentChange(options); })(v);
+            this.show(this.entry);
+        }, build));
+        section('env-ground', 'ground', undefined, () => [
+            range('groundRadius', 'properties.environment.size', 'properties.environment.undo.size', 'env-ground-size', 0.001, 10, 0.001, { geometry: true, params: true }),
+            range('groundSoftness', 'properties.environment.softness', 'properties.environment.undo.softness', 'env-ground-softness', 0, 1, 0.01, { geometry: true, params: true }),
+        ]);
+        // flattened ground: HDRI height, floor height (distortion), sphere size (= where the floor ends), transition
+        section('env-dome', 'dome', { params: true }, () => [
+            range('domeShift', 'properties.environment.height', 'properties.environment.undo.height', 'env-dome-shift', -0.5, 0.9, 0.01),
+            range('groundHeight', 'properties.environment.floorHeight', 'properties.environment.undo.floorHeight', 'env-floor-height', 0.05, 5, 0.01),
+            range('domeRadius', 'properties.environment.sphere', 'properties.environment.undo.sphere', 'env-dome-size', 1, 50, 0.5),
+            range('domeBlend', 'properties.environment.blend', 'properties.environment.undo.blend', 'env-dome-blend', 0, 1, 0.01),
+        ]);
+        section('env-reflection', 'reflection', { params: true }, () => [
+            range('reflectionStrength', 'properties.environment.reflectionStrength', 'properties.environment.undo.reflectionStrength', 'env-refl-strength', 0, 1, 0.01),
+            range('reflectionBlur', 'properties.environment.reflectionBlur', 'properties.environment.undo.reflectionBlur', 'env-refl-blur', 0, 1, 0.01),
+        ]);
+        section('env-wet', 'wet', { params: true }, () => [
+            range('puddles', 'properties.environment.puddles', 'properties.environment.undo.puddles', 'env-puddles', 0, 1, 0.01),
+            range('puddleSize', 'properties.environment.puddleSize', 'properties.environment.undo.puddleSize', 'env-puddle-size', 0.05, 3, 0.01),
+        ]);
         return rows;
     }
 

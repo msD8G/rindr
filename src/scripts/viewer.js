@@ -38,6 +38,7 @@ import { PropertiesPanel } from './properties.js';
 import { Slicer, isClosedGeometry } from './slicer.js';
 import { RenderBatcher, BATCH_LAYER } from './render-batcher.js';
 import { GroundProjection } from './ground.js';
+import { GROUND_SURFACE } from './ground-reflection.js';
 import { BackgroundDome } from './background-dome.js';
 import { ContactShadow } from './contact-shadow.js';
 import { ModelAnimation, createPlaybar } from './animation.js';
@@ -449,6 +450,13 @@ const environment = {
     // ground shadow disc – "size"/"softness" in the panel
     groundRadius: 3,     // soft edge of the ground shadow: ends at this distance from the centre (× model size)
     groundSoftness: 0.6, // share of the radius used for the transition (0 = hard edge)
+    // ground reflection + bad weather (ground-reflection.js, path tracer only) – on the same disc, also without the shadow
+    reflection: false,
+    reflectionStrength: 0.5,
+    reflectionBlur: 0.2,
+    wet: false,          // bad weather: procedural puddles
+    puddles: 0.4,        // share of the ground covered by puddles
+    puddleSize: 0.5,     // puddle pattern size (× model size)
     dome: true,          // "flatten ground": HDRI background as a dome with flat floor instead of infinitely far away
     intensity: 0.8,      // brightness of the HDRI (visible background and base of the light)
     lightBoost: 1,       // extra light energy on the model – the visible background stays as it is
@@ -545,9 +553,13 @@ const environment = {
         pathTracing.backgroundFollowsCamera = !showHdri && !this.matte;
         contactShadow.markDirty();
         const groundWas = ground.enabled;
-        ground.enabled = this.on && this.ground;
+        ground.enabled = this.on && (this.ground || this.reflection || this.wet);
+        ground.shadow = this.ground;
+        GROUND_SURFACE.params.value.set(this.reflection ? this.reflectionStrength : 0, this.reflectionBlur, this.wet ? 1 : 0, this.puddles);
+        GROUND_SURFACE.params2.value.set(Math.max(this.puddleSize * this.modelSize, 1e-6), this.centerX, this.centerZ, showHdri ? 1 : 0);
         // ground disc: ring spacing relative to the model size (pure tessellation, no projection any more)
         const fadeEnd = this.groundRadius * this.modelSize;
+        GROUND_SURFACE.params3.value.set(fadeEnd * (1 - this.groundSoftness), fadeEnd, 0, 0);   // reflection/puddles edge
         ground.place(this.groundY, this.modelSize, fadeEnd * (1 - this.groundSoftness), fadeEnd, this.centerX, this.centerZ);
         // one surface (flat floor → rounded edge → sphere) seen from the projection point above the ground centre
         const floorHeight = this.groundHeight * this.modelSize;
@@ -4235,7 +4247,7 @@ renderer.setAnimationLoop(() => {
     // Depth of field + focus line in their shader (the raster is their final look; not in AI capture / export)
     splatMesh?.update(camera, { fisheye: rasterFisheye.active, dof, focusLine: !captureRequest && !exportRequest && dof.showPlane && selection?.kind === 'camera' });
     if (post) lens.begin();
-    const contact = ground.enabled && rootGroup && !splatMesh;   // splats cast no shadow
+    const contact = ground.enabled && environment.ground && rootGroup && !splatMesh;   // splats cast no shadow
     if (contact) {
         if ((contactLive && !animPlaying) || loadRender.active || fading.size) contactShadow.markDirty();
         contactShadow.update(renderer, scene, extraModels.length ? slicer.group : rootGroup, environment.groundY, [ground.mesh]);

@@ -164,6 +164,9 @@ export function captureState(ctx) {
             on: env.on, hdri: env.hdri || null,
             intensity: env.intensity, lightBoost: env.lightBoost, rotation: +THREE.MathUtils.radToDeg(scene.environmentRotation.y).toFixed(3),
             background: env.background, ground: env.ground, groundRadius: env.groundRadius, groundSoftness: env.groundSoftness, dome: env.dome, domeShift: env.domeShift, groundHeight: env.groundHeight, domeRadius: env.domeRadius, domeBlend: env.domeBlend,
+            // ground reflection + bad weather (ground-reflection.js)
+            reflection: env.reflection, reflectionStrength: env.reflectionStrength, reflectionBlur: env.reflectionBlur,
+            wet: env.wet, puddles: env.puddles, puddleSize: env.puddleSize,
             // own HDRIs of the HDRI editor (descriptions, hdri-model.js)
             custom: env.custom?.size ? [...env.custom.values()] : undefined,
         },
@@ -313,6 +316,9 @@ export async function applyState(ctx, state) {
         env.ground = !!e.ground;
         if (e.groundRadius != null) env.groundRadius = e.groundRadius;
         if (e.groundSoftness != null) env.groundSoftness = e.groundSoftness;
+        env.reflection = !!e.reflection;
+        env.wet = !!e.wet;
+        for (const key of ['reflectionStrength', 'reflectionBlur', 'puddles', 'puddleSize']) if (e[key] != null) env[key] = e[key];
         if (e.dome != null) env.dome = !!e.dome;
         if (e.domeShift != null) env.domeShift = e.domeShift;
         if (e.groundHeight != null) env.groundHeight = e.groundHeight;

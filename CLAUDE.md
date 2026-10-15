@@ -120,6 +120,9 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 [X] Gelee, Wachs und Schleim mit Subsurface Scattering (schnelle Näherung nach Barré-Brisebois, Raster + HQ; Details: `docs/materials.md`)
 [X] Leuchtmarmor (grün, blau, bernstein): leuchtende Fraktal-Adern in der Tiefe, Raster + HQ gleich (eigene Umsetzung, Shadertoy nur als Inspiration)
 
+### BODEN
+[X] Bodenspiegelung (Stärke, Unschärfe) und Regenwetter mit prozeduralen Pfützen – nur in HQ (Details: `docs/environment.md`)
+
 ### VIEW-CUBE
 [X] Perspektiven-Würfel wie bei Blender, floatet unten rechts; Flächen (oben, links, hinten …), Kanten und Ecken anklickbar → Kamera fliegt in diese Ansicht; Ziehen dreht (Details: `docs/ui.md`)
 

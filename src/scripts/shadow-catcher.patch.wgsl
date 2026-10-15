@@ -92,15 +92,59 @@
 								// strength 0…1
 								let scShadow = mix( 1.0, scLit, scParams.z );
 								let scLookup = ${ __DOME }( ray.origin, ray.direction, ${ rand1 }( 130u ) );
+								// ground reflection / bad weather (ground-reflection.js): reflection share r, roughness,
+								// darkening d – background × shadow × (1 − r) × d, the rest continues as reflection ray
+								let scSurf = ${ __GROUND }( scPos, - ray.direction );
+								var scBase = vec3f( 0.0 );   // what is seen of the ground without reflection
 								if ( bounce == 0u ) {
 
 									let scBg = ${ sampleBackground }( scLookup, ${ rand2 }( ${ RNG_INDEX_BACKGROUND_SAMPLE } ) );
-									resultColor = vec4f( scBg.rgb * scShadow, 1.0 );
+									scBase = scBg.rgb * scShadow * scSurf.z;
+									resultColor = vec4f( scBase * ( 1.0 - scSurf.x ), 1.0 );
 
 								} else {
 
-									let scEnvColor = ${ sampleEnvColor }( scLookup ).rgb * scShadow * throughputColor;
-									resultColor += vec4f( ${ clampPathContributionFunc }( scEnvColor, bounce, clampDirect, clampIndirect ), 0.0 );
+									scBase = ${ clampPathContributionFunc }( ${ sampleEnvColor }( scLookup ).rgb * scShadow * scSurf.z * throughputColor, bounce, clampDirect, clampIndirect );
+									resultColor += vec4f( scBase * ( 1.0 - scSurf.x ), 0.0 );
+
+								}
+								if ( scSurf.x > 1e-3 ) {
+
+									// only the model is mirrored (HDRI background hidden): count the ground as if the
+									// reflection ray misses; if it hits something, that is taken back (top of the loop)
+									if ( scSurf.w < 0.5 ) {
+
+										scMirrorBg = scBase * scSurf.x;
+										resultColor += vec4f( scMirrorBg, 0.0 );
+										scMirrorPending = true;
+
+									}
+
+									// glossy around the mirror direction (spread ∝ roughness²), never into the ground
+									var scRefl = reflect( ray.direction, scUp );
+									let scRough = scSurf.y * scSurf.y;
+									if ( scRough > 0.0 ) {
+
+										let scU = ${ rand2 }( 120u );
+										let scZ = 1.0 - 2.0 * scU.x;
+										let scRr = sqrt( max( 0.0, 1.0 - scZ * scZ ) );
+										let scPhi = 6.283185307 * scU.y;
+										scRefl = normalize( scRefl + vec3f( scRr * cos( scPhi ), scRr * sin( scPhi ), scZ ) * scRough * 1.5 );
+
+									}
+									if ( scRefl.y < 1e-3 ) {
+
+										scRefl = normalize( vec3f( scRefl.x, abs( scRefl.y ) + 1e-3, scRefl.z ) );
+
+									}
+									throughputColor *= scSurf.x;
+									ray.origin = ${ offsetRayOriginFunc }( scPos, scRefl, scUp );
+									ray.direction = scRefl;
+									ray.maxDist = 0.0;
+									bsdfPdf = 1e6;   // like a mirror: no next event estimation here, environment hits count fully
+									isFullyTransmissive = false;
+									${ rngNextBounce }();
+									continue;
 
 								}
 								break;

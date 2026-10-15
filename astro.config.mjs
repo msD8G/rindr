@@ -6,11 +6,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // Patches three-gpu-pathtracer's megakernel (fails loudly if the library changed – check on every update):
-// - shadow catcher (src/scripts/shadow-catcher.js): matte branch → src/scripts/shadow-catcher.patch.wgsl
+// - shadow catcher (src/scripts/shadow-catcher.js): matte branch → src/scripts/shadow-catcher.patch.wgsl, incl. ground
+//   reflection / puddles (src/scripts/ground-reflection.js: GROUND_SURFACE_WGSL)
 // - background dome (src/scripts/background-dome.js): every background/environment lookup of a ray goes
 //   through domeDirection(ray.origin, ray.direction) – camera rays, reflections and refractions
 const SHADOW_CATCHER_MODULE = fileURLToPath(new URL('./src/scripts/shadow-catcher.js', import.meta.url));
 const DOME_MODULE = fileURLToPath(new URL('./src/scripts/background-dome.js', import.meta.url));
+const GROUND_MODULE = fileURLToPath(new URL('./src/scripts/ground-reflection.js', import.meta.url));
 const SHADOW_CATCHER_PATCH = fileURLToPath(new URL('./src/scripts/shadow-catcher.patch.wgsl', import.meta.url));
 const FISHEYE_MODULE = fileURLToPath(new URL('./src/scripts/fisheye.js', import.meta.url));
 // fisheye ray + depth of field with a spherical focus surface (distance along the ray) and the aperture
@@ -49,6 +51,25 @@ function shadowCatcherPatch() {
       if (!anchor.test(code)) this.error('rindr-shadow-catcher: matte branch not found in PathTracerMegaKernel.js (three-gpu-pathtracer changed?)');
       code = code.replace(anchor, () => readFileSync(SHADOW_CATCHER_PATCH, 'utf8'));
       // background dome: the three lookups by ray direction
+      // ground reflection, model only (shadow-catcher.patch.wgsl): the reflection ray's next segment decides –
+      // a miss ends the path (the ground was already counted), a hit takes the counted ground back
+      const mirrorVars = /\n(\t+)for \( var bounce = 0u; bounce < maxBounces; bounce \+\+ \) \{/;
+      const mirrorCheck = /let surfaceDist = select\( \$\{ LIGHT_FAR_DISTANCE \}, hitResult\.dist, didHit \);\n/;
+      for (const re of [mirrorVars, mirrorCheck]) if ((code.match(new RegExp(re.source, 'g')) || []).length !== 1) this.error(`rindr-shadow-catcher: ${re} not found exactly once in PathTracerMegaKernel.js`);
+      code = code.replace(mirrorVars, m => '\n\t\t\t\tvar scMirrorBg = vec3f( 0.0 );\n\t\t\t\tvar scMirrorPending = false;' + m);
+      code = code.replace(mirrorCheck, m => m + `
+					if ( scMirrorPending ) {
+
+						scMirrorPending = false;
+						if ( ! didHit ) {
+
+							break;
+
+						}
+						resultColor -= vec4f( scMirrorBg, 0.0 );
+
+					}
+`);
       for (const [from, to] of [
         ['${ sampleBackground }( ray.direction, rng )', '${ sampleBackground }( ${ __DOME }( ray.origin, ray.direction, ${ rand1 }( 130u ) ), rng )'],
         ['${ sampleEnvColor }( ray.direction ).rgb * throughputColor * misWeight', '${ sampleEnvColor }( ${ __DOME }( ray.origin, ray.direction, ${ rand1 }( 130u ) ) ).rgb * throughputColor * misWeight'],
@@ -59,7 +80,8 @@ function shadowCatcherPatch() {
       }
       return {
         code: `import { SHADOW_CATCHER as __SC } from ${JSON.stringify(SHADOW_CATCHER_MODULE)};\n` +
-          `import { DOME_DIRECTION as __DOME } from ${JSON.stringify(DOME_MODULE)};\n` + code,
+          `import { DOME_DIRECTION as __DOME } from ${JSON.stringify(DOME_MODULE)};\n` +
+          `import { GROUND_SURFACE_WGSL as __GROUND } from ${JSON.stringify(GROUND_MODULE)};\n` + code,
         map: null,
       };
     },
