@@ -7,6 +7,7 @@ import { PARAMS } from './material-manager.js';
 import { MATERIALS } from './config.js';
 import { MATERIAL_PRESETS, PRESET_CATEGORIES, presetName, presetCategoryLabel } from './material-presets.js';
 import { t, has } from './i18n.js';
+import { colorField } from './ui-controls.js';
 
 export const MATERIAL_MIME = 'application/x-step-viewer-material';
 
@@ -225,11 +226,7 @@ export class MaterialPanel {
         const value = def.params[p.key] ?? p.default;
         const set = v => this.manager.setParams(def.id, { [p.key]: v });
         if (p.type === 'color') {
-            const c = el('input', 'h-5 w-full cursor-pointer rounded bg-transparent');
-            c.type = 'color';
-            c.value = value;
-            c.oninput = () => set(c.value);
-            ctl.append(c);
+            ctl.append(colorField(value, { onInput: set }));
         } else {
             const step = (p.max - p.min) / 100;
             const r = el('input', 'min-w-0 flex-1 accent-sky-400');

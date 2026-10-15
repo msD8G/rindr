@@ -9,6 +9,7 @@ import {
 } from './material-graph.js';
 import { mapLabel } from './material-panel.js';
 import { t } from './i18n.js';
+import { colorField } from './ui-controls.js';
 
 
 const PORT_COLORS = { float: 'bg-violet-300', color: 'bg-amber-300' };
@@ -219,12 +220,7 @@ export class NodeEditor {
         const label = span('w-16 shrink-0 truncate text-white/60', paramLabel(n.type, p.key));
         const set = v => { n.params = { ...n.params, [p.key]: v }; this.commit(n.id + ':' + p.key); };
         if (p.kind === 'color') {
-            const c = document.createElement('input');
-            c.type = 'color';
-            c.value = value;
-            c.className = 'h-5 min-w-0 flex-1 cursor-pointer rounded bg-transparent';
-            c.oninput = () => set(c.value);
-            wrap.append(label, c);
+            wrap.append(label, colorField(value, { onInput: set, className: 'flex-1' }));
         } else if (p.kind === 'select') {
             const s = document.createElement('select');
             s.className = 'min-w-0 flex-1 rounded bg-white/10 px-1 py-0.5 text-white outline-none';

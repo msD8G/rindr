@@ -7,6 +7,7 @@
 import { viewAngle, setViewAngle, PERSPECTIVE_LIMIT, MAX_VIEW_ANGLE } from './fisheye.js';
 import { Euler } from 'three/webgpu';
 import { t, has } from './i18n.js';
+import { draggable, fmt, INPUT, colorField } from './ui-controls.js';
 
 let checkId = 0;   // ids for <label for>
 
@@ -14,7 +15,6 @@ let checkId = 0;   // ids for <label for>
 const EXPANDED_KEY = 'rindr.expandedSections';
 const expanded = new Set((() => { try { return JSON.parse(localStorage.getItem(EXPANDED_KEY)) || []; } catch { return []; } })());
 const saveExpanded = () => { try { localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded])); } catch { /* storage blocked */ } };
-const INPUT = 'w-full min-w-0 rounded bg-white/10 px-1.5 py-0.5 text-right tabular-nums text-white outline-none focus:bg-white/20';
 const BUTTON = 'rounded px-2 py-0.5 text-white/80 hover:bg-white/15';
 const BUTTON_ACTIVE = 'rounded bg-sky-500/40 px-2 py-0.5 text-white';
 
@@ -228,12 +228,9 @@ export class PropertiesPanel {
         if (!light.isAmbientLight) rows.push(...this._transformSection(false));
         rows.push(this._rangeRow(t('properties.light.intensity'), light.intensity, 0, 10, 0.05, this._tracked(t('properties.light.undo.intensity'), 'light-intensity:' + light.uuid,
             () => light.intensity, v => { light.intensity = v; this.ctx.onLightChange(); }), this._dragHooks()));
-        const color = el('input', 'h-5 w-full cursor-pointer rounded bg-transparent');
-        color.type = 'color';
-        color.value = '#' + light.color.getHexString();
         const setColor = this._tracked(t('properties.light.undo.color'), 'light-color:' + light.uuid,
             () => '#' + light.color.getHexString(), v => { light.color.set(v); this.ctx.onLightChange(); });
-        color.oninput = () => setColor(color.value);
+        const color = colorField('#' + light.color.getHexString(), { onInput: setColor });
         rows.push(this._row(t('properties.light.color'), color));
         return rows;
     }
@@ -361,12 +358,9 @@ export class PropertiesPanel {
         flip.onclick = () => { doFlip(); this.ctx.record?.({ label: t('properties.slicer.undo.flip'), undo: doFlip, redo: doFlip }); };
         axes.append(flip);
 
-        const color = el('input', 'h-5 w-full cursor-pointer rounded bg-transparent');
-        color.type = 'color';
-        color.value = '#' + slicer.capMaterial.color.getHexString();
         const setCapColor = this._tracked(t('properties.slicer.undo.capColor'), 'slicer-color',
             () => '#' + slicer.capMaterial.color.getHexString(), v => slicer.capMaterial.color.set(v));
-        color.oninput = () => setCapColor(color.value);
+        const color = colorField('#' + slicer.capMaterial.color.getHexString(), { onInput: setCapColor });
 
         const rows = [this._row(t('properties.slicer.axis'), axes), ...this._transformSection(true), this._row(t('properties.slicer.capColor'), color)];
         if (!slicer.enabled) rows.push(el('div', 'mt-1 text-white/40', t('properties.slicer.inactiveHint')));
@@ -746,48 +740,6 @@ function el(tag, className, text) {
     if (className) e.className = className;
     if (text !== undefined) e.textContent = text;
     return e;
-}
-
-// Drag a number field sideways to change it (like a slider, cf. draggable-number.js); a click without moving
-// edits it as usual, while it has the focus it is a normal text field. Shift = 10× faster, Alt = 10× finer.
-function draggable(input, { perPixel, min = -Infinity, max = Infinity, step = 0, onDrag, onStart, onEnd }) {
-    input.classList.add('cursor-ew-resize', 'focus:cursor-text');
-    input.addEventListener('pointerdown', e => {
-        if (document.activeElement === input || e.button !== 0) return;
-        if (e.offsetX > input.clientWidth - 14) return;   // the step arrows at the right edge (index.astro) stay native
-        e.preventDefault();   // no focus yet: a click focuses on release, a drag never
-        let last = e.clientX, value = Number(input.value) || 0, dragging = false, moved = 0;
-        const rate = perPixel(value);
-        input.setPointerCapture(e.pointerId);
-        const move = ev => {
-            const dx = ev.clientX - last;
-            last = ev.clientX;
-            moved += Math.abs(dx);
-            if (!dragging) {
-                if (moved < 3) return;
-                dragging = true;
-                onStart?.();
-            }
-            value = Math.min(max, Math.max(min, value + dx * rate * (ev.shiftKey ? 10 : ev.altKey ? 0.1 : 1)));
-            const shown = step > 0 ? Math.round(value / step) * step : value;
-            input.value = fmt(shown);
-            onDrag(shown);
-        };
-        const up = () => {
-            input.removeEventListener('pointermove', move);
-            input.removeEventListener('pointerup', up);
-            input.removeEventListener('pointercancel', up);
-            if (dragging) onEnd?.();
-            else { input.focus(); input.select(); }
-        };
-        input.addEventListener('pointermove', move);
-        input.addEventListener('pointerup', up);
-        input.addEventListener('pointercancel', up);
-    });
-}
-
-function fmt(v) {
-    return Math.abs(v) < 1e-9 ? "0" : String(Math.round(v * 100) / 100);
 }
 
 function THREE_deg(rad) {
