@@ -18,6 +18,20 @@ const INPUT = 'w-full min-w-0 rounded bg-white/10 px-1.5 py-0.5 text-right tabul
 const BUTTON = 'rounded px-2 py-0.5 text-white/80 hover:bg-white/15';
 const BUTTON_ACTIVE = 'rounded bg-sky-500/40 px-2 py-0.5 text-white';
 
+// transform mode / reset as icons (the German labels ran out of the panel); label as title + aria-label
+const ICON_SVG = '<svg viewBox="0 0 16 16" class="size-4 fill-none stroke-current" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">';
+const TRANSFORM_ICONS = {
+    // four-way arrow
+    translate: ICON_SVG + '<path d="M8 1.5v13M1.5 8h13"/><path d="M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2"/></svg>',
+    // circular arrow
+    rotate: ICON_SVG + '<path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5v2.5h-2.5"/></svg>',
+    // small box growing to a large one
+    scale: ICON_SVG + '<rect x="1.5" y="8.5" width="6" height="6" rx="0.5"/><path d="M1.5 5.5v-4h13v13h-4"/><path d="M7.5 8.5l4-4M8.5 4.5h3v3"/></svg>',
+    // arrow back to the origin
+    reset: ICON_SVG + '<path d="M3 8a5 5 0 1 0 1.5-3.6"/><path d="M3 2.5v2.5h2.5"/><circle cx="8" cy="8" r="1"/></svg>',
+};
+const ICON_BUTTON = ' flex items-center justify-center px-1.5 py-1';
+
 export class PropertiesPanel {
     /**
      * @param {HTMLElement} root
@@ -141,16 +155,23 @@ export class PropertiesPanel {
         if (this.ctx.isHidden?.(this.entry)) return [el('div', 'mb-1.5 text-white/50', t('properties.transform.hiddenHint'))];
         const tf = this.ctx.transformer;
         const modes = el('div', 'mb-1.5 flex gap-1');
-        const mk = (mode, label) => {
-            const b = el('button', tf.mode === mode ? BUTTON_ACTIVE : BUTTON, label);
-            b.title = t(`properties.transform.modeTitle.${mode}`);
+        const iconButton = (className, icon, title, label) => {
+            const b = el('button', className + ICON_BUTTON);
+            b.innerHTML = icon;
+            b.title = title;
+            b.setAttribute('aria-label', label);
+            return b;
+        };
+        const mk = mode => {
+            const b = iconButton(tf.mode === mode ? BUTTON_ACTIVE : BUTTON, TRANSFORM_ICONS[mode],
+                t(`properties.transform.modeTitle.${mode}`), t(`properties.transform.${mode}`));
             b.onclick = () => { tf.setMode(mode); this.show(this.entry); };
             return b;
         };
-        modes.append(mk('translate', t('properties.transform.translate')));
-        if (withRotation) modes.append(mk('rotate', t('properties.transform.rotate')));
-        if (withScale) modes.append(mk('scale', t('properties.transform.scale')));
-        const reset = el('button', BUTTON + ' ml-auto', t('properties.transform.reset'));
+        modes.append(mk('translate'));
+        if (withRotation) modes.append(mk('rotate'));
+        if (withScale) modes.append(mk('scale'));
+        const reset = iconButton(BUTTON + ' ml-auto', TRANSFORM_ICONS.reset, t('properties.transform.reset'), t('properties.transform.reset'));
         reset.onclick = () => tf.reset();
         if (withRotation) modes.append(reset);
 
