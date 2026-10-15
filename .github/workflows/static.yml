@@ -1,4 +1,4 @@
-# Builds the Astro site (dist/) and deploys it to GitHub Pages: https://msd8g.github.io/rindr/
+# Builds the Astro site (dist/) and deploys it to GitHub Pages: https://schmarante.github.io/rindr/
 name: Deploy to GitHub Pages
 
 on:
@@ -41,7 +41,7 @@ jobs:
         run: npm ci
 
       # project page lives in a sub directory (/rindr/): base path and public URL come from the Pages settings
-      # (base_path "/rindr", base_url "https://msd8g.github.io/rindr") – astro.config.mjs reads both.
+      # (base_path "/rindr", base_url "https://schmarante.github.io/rindr") – astro.config.mjs reads both.
       # Repository variable SITE_URL (Settings → Secrets and variables → Actions → Variables) overrides the URL,
       # e.g. for a custom domain.
       - name: Build

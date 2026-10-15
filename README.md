@@ -10,7 +10,7 @@ Your local 3D file viewer – with real-time path tracing, right in the browser.
 
 **STEP · glTF/GLB · FBX · STL · PLY · IFC · BCF · Gaussian splats (PLY/SOG)**
 
-<a href="https://msd8g.github.io/rindr/"><img src="https://img.shields.io/badge/%E2%96%B6%20Live%20demo-msd8g.github.io%2Frindr-2ea44f?style=for-the-badge" alt="Live demo"></a>
+<a href="https://schmarante.github.io/rindr/"><img src="https://img.shields.io/badge/%E2%96%B6%20Live%20demo-schmarante.github.io%2Frindr-2ea44f?style=for-the-badge" alt="Live demo"></a>
 
 Drop a CAD model, a mesh, a BIM file or a Gaussian splat into the window and get a KeyShot-style render in seconds. Everything runs locally on your GPU – **no upload, no server, no install.**
 
