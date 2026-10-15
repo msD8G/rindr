@@ -113,6 +113,9 @@
             "subsurface": "Subsurface (Anteil)",
             "subsurfaceColor": "Streufarbe",
             "subsurfaceRadius": "Streuweite (mm)",
+            "marble": "Leuchtadern (Stärke)",
+            "marbleColor": "Aderfarbe",
+            "marbleScale": "Adermaßstab (mm)",
             "toon": "Toon-Schattierung",
             "flat": "Flach (ohne Licht)",
             "contour": "Kontur",
@@ -126,6 +129,7 @@
             "sheen": "Samt",
             "effects": "Effekte",
             "subsurface": "Subsurface Scattering",
+            "marble": "Leuchtmarmor",
             "style": "Stil"
         },
         "categories": {
@@ -134,6 +138,7 @@
             "paint": "Lack",
             "glass": "Glas",
             "subsurface": "Transluzent (SSS)",
+            "marble": "Leuchtmarmor",
             "other": "Sonstige",
             "style": "Stil"
         },
@@ -171,6 +176,10 @@
             "emissive-neon-green": "Neon-Grün leuchtend",
             "sss-jelly": "Gelee",
             "sss-wax": "Wachs",
+            "sss-slime": "Schleim",
+            "marble-glow-green": "Leuchtmarmor grün",
+            "marble-glow-blue": "Leuchtmarmor blau",
+            "marble-glow-amber": "Leuchtmarmor bernstein",
             "toon-orange": "Toon (orange)",
             "outline-white": "Outline weiß",
             "outline-black": "Outline schwarz"

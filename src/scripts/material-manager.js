@@ -38,6 +38,10 @@ export const PARAMS = [
     { key: 'subsurface', type: 'number', min: 0, max: 1, default: 0, group: 'subsurface' },
     { key: 'subsurfaceColor', type: 'color', default: '#ffffff', group: 'subsurface' },
     { key: 'subsurfaceRadius', type: 'number', min: 0.05, max: 50, default: 2, group: 'subsurface' },
+    // glowing marble veins inside the object (marble.js, raster + path tracer); scale = scene units per pattern unit
+    { key: 'marble', type: 'number', min: 0, max: 5, default: 0, group: 'marble' },
+    { key: 'marbleColor', type: 'color', default: '#33ff73', group: 'marble' },
+    { key: 'marbleScale', type: 'number', min: 0.5, max: 200, default: 10, group: 'marble' },
     // style: toon shading / flat colour (raster; matte in the path tracer) and contour lines (contour.js, all view modes)
     { key: 'toon', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
     { key: 'flat', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
@@ -425,6 +429,7 @@ export class MaterialManager extends EventTarget {
         material.opacity = p.opacity;
         material.transparent = p.opacity < 1;
         material.setSubsurface(p.subsurface, p.subsurfaceColor, p.subsurfaceRadius);   // after the physical params
+        material.setMarble(p.marble, p.marbleColor, p.marbleScale);
         material.toon = p.toon > 0;
         material.flat = p.flat > 0;
         if (material.flat) {

@@ -113,6 +113,9 @@
             "subsurface": "Subsurface (amount)",
             "subsurfaceColor": "Scatter colour",
             "subsurfaceRadius": "Scatter radius (mm)",
+            "marble": "Glowing veins (strength)",
+            "marbleColor": "Vein colour",
+            "marbleScale": "Vein scale (mm)",
             "toon": "Toon shading",
             "flat": "Flat (unlit)",
             "contour": "Contour",
@@ -126,6 +129,7 @@
             "sheen": "Sheen",
             "effects": "Effects",
             "subsurface": "Subsurface scattering",
+            "marble": "Glowing marble",
             "style": "Style"
         },
         "categories": {
@@ -134,6 +138,7 @@
             "paint": "Paint",
             "glass": "Glass",
             "subsurface": "Translucent (SSS)",
+            "marble": "Glowing marble",
             "other": "Other",
             "style": "Style"
         },
@@ -171,6 +176,10 @@
             "emissive-neon-green": "Neon green (emissive)",
             "sss-jelly": "Jelly",
             "sss-wax": "Wax",
+            "sss-slime": "Slime",
+            "marble-glow-green": "Glowing marble green",
+            "marble-glow-blue": "Glowing marble blue",
+            "marble-glow-amber": "Glowing marble amber",
             "toon-orange": "Toon (orange)",
             "outline-white": "Outline white",
             "outline-black": "Outline black"

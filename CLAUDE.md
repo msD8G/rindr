@@ -44,7 +44,7 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 - Oberflächentexte nur über `src/i18n/de_de.json` + `en_us.json` (`t()` aus `i18n.js`), neue Schlüssel immer in beiden Dateien – Details: `docs/i18n.md`.
 - Neues Dateiformat = in allen Format-Texten nennen (Wunsch des Nutzers): `status.dropFormats` (Start-Hinweis), `page.drop.hint` (Drop-Fläche), `about.description` – de_de + en_us; neue Bibliotheken in `src/scripts/libraries.js` eintragen (+ `about.libs.<id>` in beiden Sprachdateien) – daraus entstehen „Über“ in der App und „Built with“ in der README (`scripts/sync-readme.mjs`, läuft automatisch vor jedem `npm run build`; README danach mit committen).
 - Eingaben einheitlich (Wunsch des Nutzers): Zahlenfelder, Regler, Farbfelder, Auswahlen, Checkboxen immer mit den Klassen/Helfern aus `src/scripts/ui-controls.js` (`INPUT`, `SELECT`, `RANGE`, `CHECKBOX`, `draggable` – Zahlenfelder seitlich mit der Maus ziehbar, Shift schneller, Alt feiner; Farben immer `colorField` – eigener Farbwähler im Panel-Stil statt des nativen Dialogs, kein `<input type=color>`); neue Fenster im Stil der Panels (`bg-black/60` + Blur).
-- Lizenz: PolyForm Noncommercial 1.0.0 (`LICENSE.md`)
+- Lizenz: PolyForm Noncommercial 1.0.0 (`LICENSE.md`). Fremden Code (z.B. Shadertoy) nur als Inspiration nehmen, Lizenz prüfen, eigene Umsetzung – keine Rechte verletzen (Wunsch des Nutzers).
 - Große Modelle in `public/models/` und HDRIs in `public/hdr/` nicht committen (beide in .gitignore).
 - **Dokumentation:** Diese Datei ist Übersicht, Regeln und Ziele. Die Details stehen in `docs/` (Karte unten). Vor Arbeit an einem Bereich die passende Datei lesen; nach Änderungen dort nachtragen (Verhalten, Entscheidungen des Nutzers, verworfene Wege, Fallstricke, Prüfskripte) – hier nur, wenn es übergreifend ist.
 
@@ -117,7 +117,8 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 
 ### STIL-MATERIALIEN
 [X] Toon (farbig), Outline weiß, Outline schwarz (flache Fläche ohne Abstufung + Gegenkontur, 2 px, Konturen auch über HQ) und Neon-Grün leuchtend in der Bibliothek (Details: `docs/materials.md`, `docs/rendering.md`)
-[X] Gelee und Wachs mit Subsurface Scattering (schnelle Näherung nach Barré-Brisebois, Raster + HQ; Details: `docs/materials.md`)
+[X] Gelee, Wachs und Schleim mit Subsurface Scattering (schnelle Näherung nach Barré-Brisebois, Raster + HQ; Details: `docs/materials.md`)
+[X] Leuchtmarmor (grün, blau, bernstein): leuchtende Fraktal-Adern in der Tiefe, Raster + HQ gleich (eigene Umsetzung, Shadertoy nur als Inspiration)
 
 ### VIEW-CUBE
 [X] Perspektiven-Würfel wie bei Blender, floatet unten rechts; Flächen (oben, links, hinten …), Kanten und Ecken anklickbar → Kamera fliegt in diese Ansicht; Ziehen dreht (Details: `docs/ui.md`)

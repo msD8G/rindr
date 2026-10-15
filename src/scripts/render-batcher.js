@@ -162,6 +162,7 @@ export class RenderBatcher {
         if (!material || Array.isArray(material) || mesh.isInstancedMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh
             || mesh.isSplat || mesh.morphTargetInfluences || geometry.morphAttributes?.position) return null;
         if (material.transparent || material.transmission > 0 || mesh.renderOrder !== 0) return null;   // sorted per object
+        if (material.userData.noBatch) return null;   // shader needs the object's own matrices (glowing marble, toon.js)
         if (mesh.userData.fade !== undefined && mesh.userData.fade < 1) return null;                      // dither fade-in per object
         if (geometry.drawRange.start !== 0 || geometry.drawRange.count !== Infinity) return null;
         return `${geometry.id}/${material.id}/${mesh.castShadow ? 1 : 0}${mesh.receiveShadow ? 1 : 0}${mesh.frustumCulled ? 1 : 0}`;

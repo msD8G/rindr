@@ -112,23 +112,52 @@ function pathTracerPerfPatch() {
   };
 }
 
-// Subsurface look in three-gpu-pathtracer (materials with `subsurface`, src/scripts/toon.js – fails loudly if the
-// library changed, check on every update): the material packing reads a stand-in per material
-// (subsurfaceStandIn: userData.subsurfacePT over the material – translucent share as rough transmission, gloss as
-// clearcoat, colour absorbed over the distance travelled inside). A random walk in the megakernel looked good but
-// took 2–5× the render time of plain plastic (Oct. 2026) – the user chose this fast approximation instead.
-const SUBSURFACE_MODULE = fileURLToPath(new URL('./src/scripts/subsurface-pt.js', import.meta.url));
-function subsurfacePatch() {
+// Material stand-ins in three-gpu-pathtracer (src/scripts/pt-stand-in.js, RindrMaterial in toon.js – fails loudly if
+// the library changed, check on every update): the material packing reads userData.ptStandIn over each material.
+// - subsurface look: translucent share as rough transmission, gloss as clearcoat, colour absorbed over the
+//   distance travelled inside. A random walk in the megakernel looked good but took 2–5× the render time of plain
+//   plastic (Oct. 2026) – the user chose this fast approximation instead.
+// - glowing marble (marble.js): flag in the unused fogVolume field (ptVolume 2), colour/scale/intensity in the
+//   sheen/iridescence fields (off for these materials); the megakernel adds the glow seen through a front face
+//   (MARBLE_WGSL in marble-pt.js, same function as the raster view) as emission. Wavefront kernels: no glow.
+const PT_STAND_IN_MODULE = fileURLToPath(new URL('./src/scripts/pt-stand-in.js', import.meta.url));
+const MARBLE_MODULE = fileURLToPath(new URL('./src/scripts/marble-pt.js', import.meta.url));
+const MARBLE_EMISSION = `
+						// RINDR glowing marble (marble.js): the veins inside, seen through the front face
+						if ( materialInfo.fogVolume == 2 && hitResult.side > 0.0 ) {
+
+							let mbOrigin = ( objectInfo.inverseMatrixWorld * vec4f( vertexData.position.xyz, 1.0 ) ).xyz;
+							let mbDir = normalize( ( objectInfo.inverseMatrixWorld * vec4f( ray.direction, 0.0 ) ).xyz );
+							let mbCos = saturate( abs( dot( hitResult.normal, ray.direction ) ) );
+							let mbFresnel = 0.04 + 0.96 * pow( 1.0 - mbCos, 5.0 );
+							let mbGlow = \${ __MARBLE }( mbOrigin, mbDir, materialInfo.sheenColor, materialInfo.sheenRoughness, materialInfo.iridescenceThicknessMinimum, \${ rand1 }( 150u ) );
+							resultColor += vec4f( \${ clampPathContributionFunc }( throughputColor * mbGlow * ( 1.0 - mbFresnel ), bounce, clampDirect, clampIndirect ), 0.0 );
+
+						}
+
+`;
+function ptStandInPatch() {
   return {
-    name: 'rindr-subsurface',
+    name: 'rindr-pt-stand-in',
     enforce: 'pre',
     transform(code, id) {
       const file = id.replace(/\\/g, '/').split('?')[0];
-      if (!file.endsWith('three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js')) return null;
-      const from = 'const m = materials[ i ];';
-      if (code.split(from).length !== 2) this.error('rindr-subsurface: material loop not found exactly once in PathtracerBVHComputeData.js (three-gpu-pathtracer changed?)');
-      code = code.replace(from, () => 'const m = __subsurfaceStandIn( materials[ i ] );');
-      return { code: `import { subsurfaceStandIn as __subsurfaceStandIn } from ${JSON.stringify(SUBSURFACE_MODULE)};\n` + code, map: null };
+      const name = file.split('/').pop();
+      const replaceOnce = (from, to) => {
+        const n = typeof from === 'string' ? code.split(from).length - 1 : (code.match(new RegExp(from.source, 'g')) || []).length;
+        if (n !== 1) this.error(`rindr-pt-stand-in: ${from} not found exactly once in ${name} (three-gpu-pathtracer changed?)`);
+        code = code.replace(from, to);
+      };
+      if (file.endsWith('three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js')) {
+        replaceOnce('const m = materials[ i ];', () => 'const m = __ptStandIn( materials[ i ] );');
+        replaceOnce(/(intArray\[ index \+\+ \] = Number\( m\.transparent \);\n\t+intArray\[ index \+\+ \] = )0;/, (_, head) => `${head}getField( m, 'ptVolume', 0 );`);
+        return { code: `import { ptStandIn as __ptStandIn } from ${JSON.stringify(PT_STAND_IN_MODULE)};\n` + code, map: null };
+      }
+      if (file.endsWith('three-gpu-pathtracer/src/webgpu/compute/PathTracerMegaKernel.js')) {
+        replaceOnce(/\n(\t+)\/\/ emission, clamped at the depth of the segment that found it/, m => '\n' + MARBLE_EMISSION + m.slice(1));
+        return { code: `import { MARBLE_WGSL as __MARBLE } from ${JSON.stringify(MARBLE_MODULE)};\n` + code, map: null };
+      }
+      return null;
     },
   };
 }
@@ -157,7 +186,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), subsurfacePatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },

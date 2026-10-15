@@ -4,7 +4,7 @@
 // category labels from materials.categories.<category>.
 import { t } from './i18n.js';
 
-export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'subsurface', 'style', 'other'];
+export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'subsurface', 'marble', 'style', 'other'];
 
 /** Display name of a preset (also the default name of a material created from it) */
 export const presetName = libraryId => t(`materials.presets.${libraryId}`);
@@ -50,7 +50,14 @@ export const MATERIAL_PRESETS = [
 
     // --- subsurface scattering (random walk in the path tracer; radius in mm) ---
     { libraryId: 'sss-jelly', category: 'subsurface', params: { color: '#ffffff', metalness: 0, roughness: 0.06, ior: 1.35, thickness: 1, subsurface: 1, subsurfaceColor: '#e8203a', subsurfaceRadius: 8 } },
+    // slime: wet gloss (clearcoat), very translucent, a faint own glow
+    { libraryId: 'sss-slime', category: 'subsurface', params: { color: '#ffffff', metalness: 0, roughness: 0.02, ior: 1.33, thickness: 1, clearcoat: 1, clearcoatRoughness: 0.01, subsurface: 1, subsurfaceColor: '#3fd60a', subsurfaceRadius: 20, emissive: '#2a9a00', emissiveIntensity: 0.3 } },
     { libraryId: 'sss-wax', category: 'subsurface', params: { color: '#f4ead6', metalness: 0, roughness: 0.4, ior: 1.45, thickness: 1, subsurface: 1, subsurfaceColor: '#f1dfbf', subsurfaceRadius: 1.5 } },
+
+    // --- glowing marble: dark polished stone, light veins inside (marble.js; scale in mm) ---
+    { libraryId: 'marble-glow-green', category: 'marble', params: { color: '#060807', metalness: 0, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02, marble: 1, marbleColor: '#33ff73', marbleScale: 10 } },
+    { libraryId: 'marble-glow-blue', category: 'marble', params: { color: '#05060a', metalness: 0, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02, marble: 1, marbleColor: '#4080ff', marbleScale: 10 } },
+    { libraryId: 'marble-glow-amber', category: 'marble', params: { color: '#0a0604', metalness: 0, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02, marble: 1, marbleColor: '#ff8c26', marbleScale: 10 } },
 
     // --- style: toon shading (raster) + contour lines (all view modes); matte in the path tracer ---
     { libraryId: 'toon-orange', category: 'style', params: { color: '#ff7a1a', metalness: 0, roughness: 1, specularIntensity: 0, toon: 1, contour: 1, contourColor: '#000000', contourWidth: 2 } },

@@ -301,6 +301,11 @@ export class MaterialPanel {
 export function swatch(params) {
     // subsurface: the colour of the scattering shows (toon.js mixes it the same way)
     const c = (params.subsurface ?? 0) > 0.5 ? (params.subsurfaceColor || '#ffffff') : (params.color || '#808080');
+    // glowing marble: dark stone with the vein colour glowing inside
+    if ((params.marble ?? 0) > 0) {
+        const m = params.marbleColor || '#33ff73';
+        return `radial-gradient(circle at 32% 28%, #ffffffaa 0, transparent 22%), radial-gradient(circle at 58% 62%, ${m}cc 0, ${m}40 38%, ${c} 72%)`;
+    }
     const metal = params.metalness ?? 0;
     const rough = params.roughness ?? 0.5;
     if ((params.transmission ?? 0) > 0.5) {
