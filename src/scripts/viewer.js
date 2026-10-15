@@ -278,9 +278,15 @@ function fitShadows(size, center = new THREE.Vector3()) {
 
 // --- Pathtracing (three-gpu-pathtracer, WebGPU) ---
 const pathTracing = new PathTracingView(renderer, { denoiseWeightsUrl: DENOISE_WEIGHTS_URL });
+// shaders of the denoiser's albedo/normal pass are compiled in advance – through the batches like the raster view
+pathTracing.compileScene = (s, c) => batcher.compileAsync(s, c);
+pathTracing.compileKey = () => batcher.generation;
 // path tracer modules: not in the start bundle – loaded when the browser is idle after the start, so
 // switching to HQ later does not wait for the download (setScene() waits for it if HQ comes earlier)
-(window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => pathTracing.load().catch(err => console.warn('[Pathtracer] preload failed:', err)), { timeout: 4000 });
+(window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => {
+    pathTracing.load().catch(err => console.warn('[Pathtracer] preload failed:', err));
+    pathTracing.prepareEnvironment(scene.environment);   // importance-sampling table in a worker
+}, { timeout: 4000 });
 
 // GPU errors (e.g. model too large for the buffer limits): switch path tracing off instead of
 // flooding the console with follow-up errors. Print each message only once.
@@ -382,6 +388,8 @@ const environment = {
         if (name) {
             // relinked HDRI (asset window): blob URL of the dropped file, otherwise public/hdr
             texture = await loadHdri(this.hdriUrls[name] || `${import.meta.env.BASE_URL}hdr/${encodeURIComponent(name)}`, onProgress);
+            // path tracer's importance-sampling table in a worker first: raster and HQ switch together
+            if (id === this._loadId) await pathTracing.prepareEnvironment(texture);
             if (id !== this._loadId) { texture.dispose(); return false; }
         }
         const previous = this.texture;
@@ -2086,7 +2094,7 @@ const waitForImage = (onProgress, isOpen) => new Promise((resolve, reject) => {
             if (st.phase === 'done') return resolve();
             if (st.phase === 'error') return reject(new Error(st.error || t('viewer.ki.ptError')));
             if (st.phase === 'suspended') return reject(new Error(t('viewer.ki.sectionActive')));
-            const phase = { bvh: 'bvh', rendering: 'rendering', 'denoise-loading': 'denoiseLoading', denoising: 'denoising', preview: 'moving', motion: 'moving' }[st.phase] || 'waiting';
+            const phase = { bvh: 'bvh', compiling: 'bvh', rendering: 'rendering', 'denoise-loading': 'denoiseLoading', denoising: 'denoising', preview: 'moving', motion: 'moving' }[st.phase] || 'waiting';
             onProgress(t(`viewer.ki.progress.${phase}`, { samples: Math.round(st.samples), maxSamples: st.maxSamples }), st.phase === 'denoising' ? 0.9 + 0.1 * st.progress : st.progress * 0.9);
             setTimeout(tick, 200);
         };
@@ -2551,15 +2559,25 @@ function setViewMode(mode) {
     }
 }
 
-// A frame that compiles many shaders blocks the main thread (render-batcher.js: grouping after loading, first
-// Basic/Default switch with new batches). Before it, two frames only show "Übernehme Szene" in the status
-// (painted by the browser), then the blocking frame is drawn; the canvas keeps the previous image meanwhile.
+// A frame that compiles many shaders blocked the main thread (node building, large assembly: ~0.7 s) and then the GPU
+// process (synchronous pipelines, ~0.9 s) – first Basic/Default switch with these batches (a regrouping
+// compiles itself beforehand, render-batcher.js). Instead the next frame only compiles: compileAsync
+// (shader-compile.js; through the batches, into the same target as the raster view) builds object by object
+// with pauses and creates the pipelines asynchronously. Until done no frame is drawn – the canvas keeps the previous image, the status shows
+// "Übernehme Szene", the page stays responsive.
 const preparedModes = new Set();
-const prepare = { skip: 0, shown: false };
+const prepare = { compile: false, jobs: 0, shown: false, generation: 0 };
 function announcePrepare() {
-    if (prepare.shown) return;
-    prepare.skip = 2;
+    prepare.compile = true;
     prepare.shown = true;
+}
+function compileRaster() {
+    if (lens.active) lens.begin();   // the raster view draws into the lens target then (other pipelines)
+    try {
+        return batcher.compileAsync(scene, camera);
+    } finally {
+        renderer.setRenderTarget(null);
+    }
 }
 
 // Path tracing scene still matching the scene? Snapshot per mesh (geometry, its position/index data version,
@@ -3804,6 +3822,7 @@ const PT_PHASES = {
     unsupported:       { label: 'pathtracing.phases.unsupported',    color: 'bg-neutral-400' },
     waiting:           { label: 'pathtracing.phases.waiting',        color: 'bg-neutral-400' },
     bvh:               { label: 'pathtracing.phases.bvh',            color: 'bg-amber-400' },
+    compiling:         { label: 'pathtracing.phases.compiling',      color: 'bg-amber-400' },
     preview:           { label: 'pathtracing.phases.preview',        color: 'bg-violet-400' },
     motion:            { label: 'pathtracing.phases.motion',         color: 'bg-violet-400' },
     error:             { label: 'pathtracing.phases.error',          color: 'bg-red-400' },
@@ -3814,7 +3833,7 @@ const PT_PHASES = {
     done:              { label: 'pathtracing.phases.done',           color: 'bg-emerald-400' },
 };
 const STATIC_PHASES = new Set(['done', 'waiting', 'unsupported', 'error', 'suspended']);
-const FULL_BAR_PHASES = new Set(['preview', 'motion', 'bvh', 'denoise-loading', 'suspended']);
+const FULL_BAR_PHASES = new Set(['preview', 'motion', 'bvh', 'compiling', 'denoise-loading', 'suspended']);
 function updatePathTracingStatus() {
     const s = prepare.shown ? { phase: 'bvh', progress: 0, samples: 0, maxSamples: 0 } : pathTracing.getStatus();
     const phase = PT_PHASES[s.phase];
@@ -3926,14 +3945,23 @@ renderer.setAnimationLoop(() => {
         if (!loadRender.dirty || now - loadRender.last < interval) { updatePathTracingStatus(); return; }
         loadRender.last = now;
     }
-    // grouping after loading (≥ 50 new meshes) – only where the raster is drawn
-    if (viewMode !== 'hq' && batcher.rebuildDue(50)) {
-        announcePrepare();
-        preparedModes.add(`${viewMode}:${batcher.generation + 1}`);   // the rebuild compiles this mode
+    // a regrouping compiles its shaders beforehand for the mode it happens in (render-batcher.js, _stage)
+    if (batcher.generation !== prepare.generation) {
+        prepare.generation = batcher.generation;
+        preparedModes.add(`${viewMode === 'basic' ? 'basic' : 'default'}:${batcher.generation}`);
     }
     updateShadowMaps();
-    if (prepare.skip > 0) {
-        prepare.skip--;
+    if (prepare.compile) {
+        prepare.compile = false;
+        prepare.jobs++;
+        const t0 = performance.now();
+        Promise.resolve().then(compileRaster).catch(err => console.warn('[Render] shader precompile failed:', err)).finally(() => {
+            prepare.jobs--;
+            loadRender.force = true;
+            debugLog(`[Render] shaders compiled in ${(performance.now() - t0).toFixed(0)} ms`);
+        });
+    }
+    if (prepare.jobs > 0) {
         updatePathTracingStatus();
         return;
     }

@@ -912,6 +912,7 @@
             "unsupported": "Path tracing: no WebGPU",
             "waiting": "Waiting for model",
             "bvh": "Taking over scene",
+            "compiling": "Preparing path tracer",
             "preview": "Moving",
             "motion": "Path tracing (moving)",
             "error": "Path tracing error",

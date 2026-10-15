@@ -9,8 +9,12 @@
 // The path tracer, OIDN and the upscaler (~120 KB) are not in the start bundle: load() imports them – the
 // viewer calls it when idle after the start (preload), setScene() waits for it at the latest. Until then
 // the settings (samples, resolution, …) are only stored.
+// Responsiveness: large kernels (megakernel) are compiled asynchronously (_installAsyncCompile), the
+// environment's importance-sampling table is computed in a worker (env-cdf.js).
 import { Vector2 } from 'three/webgpu';
 import { PATHTRACING } from './config.js';   // defaults (samples, resolution, bounces, …)
+import { isEnvCdfReady, prepareEnvCdf } from './env-cdf.js';
+import { compileAsync } from './shader-compile.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
@@ -47,6 +51,55 @@ export class PathTracingView {
         this._settings = { renderScale: PATHTRACING.renderScale, maxSamples: PATHTRACING.maxSamples,
             filterGlossyFactor: PATHTRACING.filterGlossyFactor, sharpness: PATHTRACING.sharpness };
         this._loading = null;
+
+        this._tracing = false;          // inside a path tracer call from render() (async compile applies)
+        this._compiling = 0;            // pipelines being compiled asynchronously
+        this._compiled = false;         // a compile finished -> restart (the skipped dispatches counted as samples)
+        this._envToken = 0;
+        if (this.supported) this._installAsyncCompile();
+
+        // shader precompilation of the denoiser's albedo/normal pass (_prepareDenoiser); the viewer replaces
+        // compileScene with the batch-aware variant and reports changes of the drawn objects via compileKey
+        this.compileScene = (scene, camera) => compileAsync(renderer, scene, camera);
+        this.compileKey = () => '';
+        this._denoisePrep = null;       // { key, done }
+        this._materialsVersion = 0;
+    }
+
+    // Large compute shaders (megakernel ~110 KB WGSL) via createComputePipelineAsync. three.js creates compute
+    // pipelines synchronously: Chrome compiles them on the GPU process main thread (Windows/DXC without shader
+    // cache: ~4 s) – no frame at all meanwhile, the whole page freezes. The async variant compiles on a
+    // worker thread of the GPU process; until it is ready the dispatch is skipped and render() shows the raster
+    // image. Applies only to calls from render() (_tracing) – a skipped dispatch would break one-off computes.
+    _installAsyncCompile() {
+        const backend = this.renderer.backend;
+        const create = backend.createComputePipeline.bind(backend);
+        const compute = backend.compute.bind(backend);
+        backend.createComputePipeline = (pipeline, bindings, promises = null) => {
+            if (promises || !this._tracing || pipeline.computeProgram.code.length < PATHTRACING.asyncCompileMinChars) {
+                return create(pipeline, bindings, promises);
+            }
+            const list = [];
+            create(pipeline, bindings, list);
+            const t0 = performance.now();
+            this._compiling++;
+            Promise.all(list).then(() => {
+                this._compiling--;
+                this._compiled = true;
+                debugLog(`[Pathtracer] kernel compiled asynchronously in ${(performance.now() - t0).toFixed(0)} ms`);
+                if (backend.get(pipeline).error) this.fail(t('render.gpuError'));
+            });
+        };
+        // pipeline not ready yet (async compile running): skip
+        backend.compute = (group, node, bindings, pipeline, dispatchSize) => {
+            if (backend.get(pipeline).pipeline) compute(group, node, bindings, pipeline, dispatchSize);
+        };
+    }
+
+    /** Compute the environment's importance-sampling table in advance (worker), e.g. when idle after the start
+     *  or for a newly loaded HDRI. Resolves when ready (never rejects). */
+    prepareEnvironment(texture) {
+        return this.supported ? prepareEnvCdf(texture) : Promise.resolve();
     }
 
     /** Load and create the path tracer (once; later calls return the same promise). false = not supported */
@@ -79,6 +132,9 @@ export class PathTracingView {
         });
         this.upscaler = new FSRUpscaler({ Upscaler });
         this.upscaler.sharpness = s.sharpness;
+        // the denoise waits until the shaders of the albedo/normal pass are compiled (_prepareDenoiser)
+        const denoiseUpdate = this.denoiser.update.bind(this.denoiser);
+        this.denoiser.update = target => (this._denoisePrep && !this._denoisePrep.done ? this.denoiser.texture : denoiseUpdate(target));
         pt.setDenoiser(this.denoiseEnabled ? this.denoiser : null);
         pt.setUpscaler(this.upscaleEnabled ? this.upscaler : null);
         debugLog(`[Pathtracer] created in ${(performance.now() - t0).toFixed(0)} ms`);
@@ -153,7 +209,8 @@ export class PathTracingView {
         this.building = true;
         this.error = null;
         try {
-            await this.load();   // usually preloaded already
+            // path tracer usually preloaded already; the environment table comes from a worker
+            await Promise.all([this.load(), prepareEnvCdf(scene.environment)]);
             // wait one frame so the status display becomes visible
             await new Promise(resolve => requestAnimationFrame(resolve));
             const t0 = performance.now();
@@ -277,10 +334,16 @@ export class PathTracingView {
         this.pathTracer.updateLights();
     }
 
-    // scene.environment / background changed
+    // scene.environment / background changed. A new environment first gets its importance-sampling table
+    // in a worker (the path tracer keeps the previous one until then); otherwise applied at once.
     updateEnvironment() {
         if (!this.ready) return;
-        this.pathTracer.updateEnvironment();
+        const token = ++this._envToken;
+        const env = this.pathTracer.scene.environment;
+        if (isEnvCdfReady(env)) { this.pathTracer.updateEnvironment(); return; }
+        prepareEnvCdf(env).then(() => {
+            if (token === this._envToken && this.ready) this.pathTracer.updateEnvironment();
+        });
     }
 
     // Only intensity/rotation of environment and background changed: apply the parameters without
@@ -295,6 +358,7 @@ export class PathTracingView {
     }
 
     updateMaterials() {
+        this._materialsVersion++;   // new materials -> new shader variants for the denoiser's albedo/normal pass
         if (!this.ready) return;
         this.pathTracer.updateMaterials();
     }
@@ -313,6 +377,62 @@ export class PathTracingView {
     render(rasterize) {
         if (!this.enabled || !this.ready || this.interacting || this.error || this.suspended) return false;
         const pt = this.pathTracer;
+        // kernel compiling asynchronously: raster image meanwhile; afterwards start over (the frames without
+        // dispatch were counted as samples)
+        if (this._compiling) { rasterize(); return true; }
+        if (this._compiled) {
+            this._compiled = false;
+            pt.reset();
+            this._firstSample ||= performance.now();
+        }
+        this._prepareDenoiser();
+        this._tracing = true;
+        try {
+            this._renderPathTraced(pt);
+        } finally {
+            this._tracing = false;
+        }
+        if (this._compiling) { rasterize(); return true; }
+        if (pt.fadeState < 1) rasterize();
+
+        // update the sample count for the display occasionally (it is a GPU readback)
+        const now = performance.now();
+        if (!this._isDone() && now - this._lastCount > PATHTRACING.countInterval) {
+            this._lastCount = now;
+            pt.getSampleCountsAsync();
+        }
+        return true;
+    }
+
+    // The denoiser rasterizes albedo + normals with its own shader variant of every material. Built at denoise
+    // time this blocked the main thread (large assembly: ~0.8 s) and then the GPU process (synchronous pipelines, ~1 s).
+    // Instead compile them while the samples accumulate: the denoiser's own pass setup (_renderAuxiliaryBuffers:
+    // target, MRT, tone mapping) with compileAsync (shader-compile.js) instead of render – node building object
+    // by object with pauses, pipelines asynchronously. Again when the drawn objects or the materials change.
+    _prepareDenoiser() {
+        if (!this.denoiseEnabled) return;
+        const key = `${this.compileKey()}/${this._materialsVersion}`;
+        if (this._denoisePrep?.key === key) return;
+        const prep = this._denoisePrep = { key, done: false };
+        const r = this.renderer, size = this.pathTracer._pathTracer.getSize(new Vector2());
+        const render = r.render;
+        let job = null;
+        const t0 = performance.now();
+        r.render = (scene, camera) => { job = this.compileScene(scene, camera); };
+        try {
+            this.denoiser._renderAuxiliaryBuffers(Math.max(size.x, 1), Math.max(size.y, 1));
+        } catch (err) {
+            console.warn('[Pathtracer] denoiser precompile failed:', err);
+        } finally {
+            r.render = render;
+        }
+        Promise.resolve(job).catch(err => console.warn('[Pathtracer] denoiser precompile failed:', err)).finally(() => {
+            prep.done = true;
+            debugLog(`[Pathtracer] denoiser shaders compiled in ${(performance.now() - t0).toFixed(0)} ms`);
+        });
+    }
+
+    _renderPathTraced(pt) {
         // motion over (hold time elapsed): back to full quality, restart
         if (this._motion?.end && performance.now() - this._motion.end > this.motion.holdMs) this._exitMotion();
         // while orbiting possibly several samples per frame (the whole image is one tile then)
@@ -344,15 +464,6 @@ export class PathTracingView {
             this.renderer.backend?.device?.queue.onSubmittedWorkDone()
                 .then(() => debugLog(`[Pathtracer] first sample finished on the GPU after ${(performance.now() - start).toFixed(0)} ms (incl. shader compilation)`));
         }
-        if (pt.fadeState < 1) rasterize();
-
-        // update the sample count for the display occasionally (it is a GPU readback)
-        const now = performance.now();
-        if (!this._isDone() && now - this._lastCount > PATHTRACING.countInterval) {
-            this._lastCount = now;
-            pt.getSampleCountsAsync();
-        }
-        return true;
     }
 
     _canMotion() {
@@ -411,7 +522,7 @@ export class PathTracingView {
     }
 
     // Current state for the status display.
-    // phase: unsupported | off | waiting | bvh | error | preview | rendering | denoise-loading | denoising | done
+    // phase: unsupported | off | waiting | bvh | compiling | error | preview | rendering | denoise-loading | denoising | done
     getStatus() {
         const status = {
             phase: 'off',
@@ -429,6 +540,7 @@ export class PathTracingView {
 
         const pt = this.pathTracer;
         if (this.interacting) return { ...status, phase: 'preview' };
+        if (this._compiling) return { ...status, phase: 'compiling' };
         if (this._motion) return { ...status, phase: 'motion' };
 
         const counts = pt._lastSampleCounts;
@@ -436,6 +548,10 @@ export class PathTracingView {
         status.progress = pt.maxSamples > 0 ? Math.min(counts.avg / pt.maxSamples, 1) : 0;
 
         if (this._isDone()) return { ...status, phase: 'done', progress: 1 };
+        // all samples there, the denoiser's shaders are still compiling
+        if (this.denoiseEnabled && this._denoisePrep && !this._denoisePrep.done && counts.min >= pt.maxSamples) {
+            return { ...status, phase: 'denoise-loading', progress: 0 };
+        }
         if (this.denoiseEnabled && this.denoiser.running) {
             return this.denoiseLoading
                 ? { ...status, phase: 'denoise-loading', progress: 0 }

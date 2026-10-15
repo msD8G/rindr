@@ -912,6 +912,7 @@
             "unsupported": "Pathtracing: kein WebGPU",
             "waiting": "Warte auf Modell",
             "bvh": "Übernehme Szene",
+            "compiling": "Bereite Pathtracer vor",
             "preview": "Bewegung",
             "motion": "Pathtracing (Bewegung)",
             "error": "Pathtracing-Fehler",

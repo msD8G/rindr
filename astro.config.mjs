@@ -66,6 +66,52 @@ function shadowCatcherPatch() {
   };
 }
 
+// Patches three-gpu-pathtracer against main-thread stalls when switching to HQ (fails loudly if the library
+// changed – check on every update):
+// - environment importance sampling: EquirectHdrInfoNode.updateFrom takes the table computed in a worker
+//   (src/scripts/env-cdf.js) instead of computing it on the main thread
+// - TextureCache.setFromScene hashed the uuid of a fresh clone → never equal → every updateEnvironment()
+//   rebuilt environment and background (useMegakernel: table computed twice)
+// - OIDNDenoiser: one MRT node for the albedo/normal pass (see below)
+// - EquirectHdrInfoUniform: `Source` → `TextureSource` (renamed in three r186, the old name warns in the console)
+const ENV_CDF_MODULE = fileURLToPath(new URL('./src/scripts/env-cdf.js', import.meta.url));
+function pathTracerPerfPatch() {
+  return {
+    name: 'rindr-pathtracer-perf',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.replace(/\\/g, '/').split('?')[0];
+      const replaceOnce = (from, to, name) => {
+        if (code.split(from).length !== 2) this.error(`rindr-pathtracer-perf: "${from.trim()}" not found exactly once in ${name} (three-gpu-pathtracer changed?)`);
+        code = code.replace(from, () => to);
+      };
+      if (file.endsWith('three-gpu-pathtracer/src/webgpu/EquirectHdrInfoNode.js')) {
+        replaceOnce('super.updateFrom( envMap );', 'if ( ! __applyEnvCdf( this, envMap ) ) super.updateFrom( envMap );', 'EquirectHdrInfoNode.js');
+        return { code: `import { applyEnvCdf as __applyEnvCdf } from ${JSON.stringify(ENV_CDF_MODULE)};\n` + code, map: null };
+      }
+      if (file.endsWith('three-gpu-pathtracer/src/uniforms/EquirectHdrInfoUniform.js')) {
+        replaceOnce(' HalfFloatType, Source, ', ' HalfFloatType, TextureSource, ', 'EquirectHdrInfoUniform.js');
+        replaceOnce('new Source(', 'new TextureSource(', 'EquirectHdrInfoUniform.js');
+        return { code, map: null };
+      }
+      if (file.endsWith('three-gpu-pathtracer/src/webgpu/denoise/OIDNDenoiser.js')) {
+        // one MRT node for the albedo/normal pass: three.js keys render contexts by mrt.id – a new node per
+        // pass rebuilt every material variant on each denoise (~0.8 s main thread + synchronous pipelines);
+        // stable, the shaders can also be compiled in advance (PathTracingView._prepareDenoiser)
+        replaceOnce('renderer.setMRT( mrt( {', 'renderer.setMRT( this._auxMRT ??= mrt( {', 'OIDNDenoiser.js');
+        return { code, map: null };
+      }
+      if (file.endsWith('three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js')) {
+        replaceOnce(`value = value.clone();
+			hash = value.uuid + '_' + value.version;`, `hash = value.uuid + '_' + value.version;
+			value = value.clone();`, 'WebGPUPathTracer.js');
+        return { code, map: null };
+      }
+      return null;
+    },
+  };
+}
+
 // Cross-origin isolation: required for SharedArrayBuffer so three-mesh-bvh can build the BVH
 // in parallel on several workers (= CPU cores). In production public/.htaccess sets the
 // same headers.
@@ -90,7 +136,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },

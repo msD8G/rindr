@@ -15,6 +15,9 @@
 //   - geometry/material changed, transparent, fading in, morph … → the mesh leaves its batch at once and is
 //     drawn individually again; the grouping is rebuilt once nothing has changed for `delay` ms
 //   - new or removed meshes → rebuild likewise
+// Before a rebuild switches over, the shaders of its new InstancedMeshes are compiled asynchronously (_stage:
+// compileAsync in the real draw context, shader-compile.js) – meanwhile the current grouping keeps drawing. Compiled in
+// the draw frame, a regrouping blocked the main thread and then the GPU process (large assembly: ~0.7 s + ~0.9 s).
 // The InstancedMeshes only hang in the scene during renderer.render(scene) – other traversals (path tracer,
 // bounds, material usage) never see them.
 //
@@ -25,6 +28,7 @@
 //   - one scene.updateMatrixWorld() per frame: three.js runs it in every renderer.render(scene) (main image,
 //     every shadow map, highlight mask …) – a full pass over all objects each time.
 import * as THREE from 'three/webgpu';
+import { compileAsync } from './shader-compile.js';
 
 export const BATCH_LAYER = 30;
 
@@ -50,13 +54,16 @@ export class RenderBatcher {
         this._synced = -1;
         this._changedAt = null;          // last change of the grouping (null = none pending)
         this._depth = 0;
-        this._pendingNew = 0;            // meshes seen for the first time since the last rebuild
         this.generation = 0;             // +1 per rebuild that created batches (new shader variants possible)
         this.stats = { batches: 0, instances: 0, rebuilds: 0, rebuildMs: 0 };
         this.changed = true;             // last sync: something drawn changed
         this.onChange = null;            // called by sync when `changed` (before the render draws shadow maps)
         this._visHash = [0, 0];          // shown meshes of the last sync (sum + xor of ids)
         this._matrixFrame = -1;
+        this.staging = new THREE.Group();   // new InstancedMeshes of a pending rebuild, compiling (_stage)
+        this.staging.name = 'RenderBatchesStaging';
+        this.staging.matrixAutoUpdate = false;
+        this._staged = null;             // { at, ready, batches: Map key -> batch }
 
         const render = renderer.render.bind(renderer);
         // timing (debug display): CPU time of all renders of `scene` per frame, nested ones = shadow maps
@@ -70,7 +77,7 @@ export class RenderBatcher {
             if (outer && this.enabled) {
                 // world matrices once per frame (sync does it), all renders of this frame use them
                 if (this._matrixFrame !== this.frame) { this._matrixFrame = this.frame; s.updateMatrixWorld(); }
-                this._attach();
+                this._attach(camera);
                 s.matrixWorldAutoUpdate = false;
             }
             try {
@@ -83,17 +90,25 @@ export class RenderBatcher {
         };
     }
 
+    /** compileAsync() (shader-compile.js) with the current batches attached: compiles the shaders of what render()
+     *  would draw. three.js collects the objects synchronously in the call, the batches only hang in the scene
+     *  meanwhile. No sync here: a due regrouping is staged by the next real draw (its context, not e.g. the
+     *  denoiser's albedo/normal pass). */
+    compileAsync(s, camera) {
+        const hang = s === this.scene && this.enabled && this._depth === 0 && this.batches.length > 0;
+        if (hang) this._hang(this.group);
+        try {
+            return compileAsync(this.renderer, s, camera);
+        } finally {
+            if (hang) this._detach();
+        }
+    }
+
     /** Call once per frame before rendering – the first render of `scene` in a frame syncs */
     newFrame() {
         this.frame++;
         this.lastTiming = this.timing;
         this.timing = { render: 0, nested: 0, sync: 0 };
-    }
-
-    /** Will the next sync rebuild with at least `minNew` new meshes (after loading: compiles shaders)? */
-    rebuildDue(minNew = 0) {
-        return this.enabled && this._changedAt !== null && performance.now() - this._changedAt > this.delay
-            && this._pendingNew >= minNew;
     }
 
     /** Grouping change waiting for its rebuild? */
@@ -118,19 +133,23 @@ export class RenderBatcher {
         this.changed = true;
     }
 
-    _attach() {
+    _attach(camera) {
         if (this._synced !== this.frame) {
             this._synced = this.frame;
             const t0 = performance.now();
-            this.sync();
+            this.sync(camera);
             this.timing.sync += performance.now() - t0;
         }
         if (!this.batches.length) return;
-        // instance matrices are world matrices → the group cancels the parent's world matrix
+        this._hang(this.group);
+    }
+
+    // instance matrices are world matrices → the group cancels the parent's world matrix
+    _hang(group) {
         this.parent.updateWorldMatrix(true, false);
-        this.group.matrix.copy(this.parent.matrixWorld).invert();
-        this.group.matrixWorldNeedsUpdate = true;
-        this.parent.add(this.group);
+        group.matrix.copy(this.parent.matrixWorld).invert();
+        group.matrixWorldNeedsUpdate = true;
+        this.parent.add(group);
     }
 
     _detach() {
@@ -148,7 +167,8 @@ export class RenderBatcher {
         return `${geometry.id}/${material.id}/${mesh.castShadow ? 1 : 0}${mesh.receiveShadow ? 1 : 0}${mesh.frustumCulled ? 1 : 0}`;
     }
 
-    sync() {
+    /** camera: of the render that syncs – a due rebuild is compiled for it first (_stage); without, at once */
+    sync(camera = null) {
         if (!this.enabled) return;
         const now = performance.now();
         const frame = this.frame;
@@ -169,8 +189,15 @@ export class RenderBatcher {
         for (const root of this.roots()) if (root) visit(root);
         if (sum !== this._visHash[0] || xor !== this._visHash[1]) { this._visHash = [sum, xor]; this._changed = true; }
 
-        // 2. grouping changed and quiet since `delay` ms → rebuild (before 3., so the batches draw this frame)
-        if (this._changedAt !== null && now - this._changedAt > this.delay) this.rebuild();
+        // 2. grouping changed and quiet since `delay` ms → compile the new batches (_stage), then rebuild
+        //    (before 3., so the batches draw this frame). Changed again during compiling → stage anew.
+        if (this._changedAt !== null && now - this._changedAt > this.delay) {
+            const staged = this._staged;
+            if (!camera) this.rebuild();
+            else if (!staged) this._stage(camera);
+            else if (staged.ready && staged.at >= this._changedAt) this.rebuild();
+            else if (staged.ready) { this._dropStaged(); this._stage(camera); }
+        }
 
         // 3. instance data
         for (const batch of this.batches) this._update(batch, frame, now);
@@ -188,7 +215,7 @@ export class RenderBatcher {
             st.matrix.set(e);
             st.moved = true;
             this._changed = true;
-            if (st.key !== null) { this._changedAt = now; this._pendingNew++; }   // new mesh – might join a batch
+            if (st.key !== null) this._changedAt = now;   // new mesh – might join a batch
             return;
         }
         st.seen = frame;
@@ -264,7 +291,6 @@ export class RenderBatcher {
     rebuild() {
         const t0 = performance.now();
         this._changedAt = null;
-        this._pendingNew = 0;
         const byKey = new Map();
         const visit = o => {
             if (o.isMesh) {
@@ -291,7 +317,7 @@ export class RenderBatcher {
             }
             let batch = old.get(key);
             if (batch && sameMembers(batch.members, members)) old.delete(key);
-            else { batch = this._create(key, members); created++; }
+            else { batch = this._takeStaged(key, members) || this._create(key, members); created++; }
             for (const m of members) this._join(m, m[STATE], batch);
             batches.push(batch);
             instances += members.length;
@@ -307,12 +333,84 @@ export class RenderBatcher {
             this.group.remove(batch.mesh);
         }
         this.batches = batches;
+        this._dropStaged();
         if (created) this.generation++;
         const ms = performance.now() - t0;
         this.stats = { batches: batches.length, instances, rebuilds: this.stats.rebuilds + 1, rebuildMs: ms };
     }
 
-    _create(key, members) {
+    // Compile the shaders of the next grouping before switching to it: its new InstancedMeshes (filled, not drawn
+    // otherwise) hang in `staging` – same parent, camera and render target as the draw – only while compileAsync
+    // (shader-compile.js) collects the scene, i.e. the same render objects as later. Called inside the draw
+    // (renderer state = this render's). Current batches are detached meanwhile, their members are not on the
+    // camera layer → compiled are the staged meshes plus individually drawn ones (already compiled, cheap).
+    _stage(camera) {
+        const old = new Map(this.batches.map(b => [b.key, b]));
+        const staged = this._staged = { at: performance.now(), ready: false, batches: new Map() };
+        for (const [key, members] of this._plan()) {
+            if (members.length < this.minInstances) continue;
+            const batch = old.get(key);
+            if (batch && sameMembers(batch.members, members)) continue;
+            const b = this._create(key, members, this.staging);
+            const im = b.mesh, array = im.instanceMatrix.array;
+            members.forEach((m, i) => array.set(m.matrixWorld.elements, i * 16));
+            im.count = members.length;
+            im.frustumCulled = false;   // no bounds yet
+            staged.batches.set(key, b);
+        }
+        if (!staged.batches.size) { staged.ready = true; return; }
+        let job;
+        this._hang(this.staging);
+        try {
+            job = compileAsync(this.renderer, this.scene, camera);
+        } catch (err) {
+            job = Promise.reject(err);
+        } finally {
+            this.staging.removeFromParent();
+        }
+        job.catch(err => console.warn('[Batches] shader precompile failed:', err)).finally(() => { staged.ready = true; });
+    }
+
+    // grouping as rebuild() would do it – without touching the mesh states
+    _plan() {
+        const byKey = new Map();
+        const visit = o => {
+            if (o.isMesh) {
+                const key = this._keyOf(o);
+                if (key !== null) {
+                    if (!byKey.has(key)) byKey.set(key, []);
+                    byKey.get(key).push(o);
+                }
+            }
+            for (const c of o.children) visit(c);
+        };
+        for (const root of this.roots()) if (root) visit(root);
+        return byKey;
+    }
+
+    // staged batch with exactly these members → into the drawn group
+    _takeStaged(key, members) {
+        const batch = this._staged?.batches.get(key);
+        if (!batch || !sameMembers(batch.members, members)) return null;
+        this._staged.batches.delete(key);
+        const im = batch.mesh;
+        im.count = 0;   // _update fills the instances
+        im.frustumCulled = members[0].frustumCulled;
+        this.group.add(im);
+        return batch;
+    }
+
+    _dropStaged() {
+        if (!this._staged) return;
+        for (const batch of this._staged.batches.values()) {
+            batch.alive = false;
+            batch.mesh.dispose();
+            this.staging.remove(batch.mesh);
+        }
+        this._staged = null;
+    }
+
+    _create(key, members, parent = this.group) {
         const first = members[0];
         const im = new THREE.InstancedMesh(first.geometry, first.material, 0);
         im.name = `Batch ${first.name || ''}`.trim();
@@ -337,7 +435,7 @@ export class RenderBatcher {
             im.instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(2 ** Math.ceil(Math.log2(members.length)) * 16), 16);
             im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         }
-        this.group.add(im);
+        parent.add(im);
         return { key, mesh: im, members, slots: [], alive: true };
     }
 
@@ -352,6 +450,7 @@ export class RenderBatcher {
             this.group.remove(batch.mesh);
         }
         this.batches = [];
+        this._dropStaged();
         this.token = {};   // all mesh states invalid
     }
 

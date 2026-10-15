@@ -25,6 +25,8 @@ export const PATHTRACING = {
     megakernel: true,           // megakernel instead of wavefront – ~4× faster on the tested GPU
     frameBudget: 1_000_000,     // paths per pass (library: 250 000)
     countInterval: 200,         // ms between two sample counts for the status display (GPU readback)
+    asyncCompileMinChars: 32_000,   // compute shaders from this WGSL size are compiled asynchronously (megakernel
+                                    // ~110 KB: synchronous ~4 s without shader cache, the page froze meanwhile)
 };
 
 // Materials: editing (parameters, node editor, rename, new, copy) hidden for now –
