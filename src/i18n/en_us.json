@@ -1131,7 +1131,7 @@
             },
             "environment": {
                 "lightHdri": "lighting from the HDRI “{name}”",
-                "lightStudio": "soft, neutral studio lighting",
+                "lightStudio": "soft, neutral lighting of a bright hall with rows of light strips on the ceiling",
                 "backgroundHdri": "background as in the image (environment visible)",
                 "backgroundStudio": "neutral, dark studio background with a gradient as in the image",
                 "sentence": "{light}, {background}.",

@@ -4,43 +4,33 @@
 import { viewAngle, PERSPECTIVE_LIMIT } from './fisheye.js';
 import * as THREE from 'three/webgpu';
 import { ProceduralEquirectTexture } from 'three-gpu-pathtracer/src/textures/ProceduralEquirectTexture.js';
+import { renderStudioHall } from './studio-hall.js';
 
-// Softboxes: direction, angular radius (rad), intensity, colour
-const SOFTBOXES = [
-    { dir: [0.5, 0.8, 0.6],   radius: 0.35, intensity: 9,  color: [1.0, 0.97, 0.92] }, // Key
-    { dir: [-0.8, 0.35, 0.3], radius: 0.45, intensity: 3,  color: [0.9, 0.95, 1.0] },  // Fill
-    { dir: [-0.2, 0.5, -0.9], radius: 0.3,  intensity: 6,  color: [1.0, 1.0, 1.0] },   // Rim
-    { dir: [0, 1, 0],         radius: 0.6,  intensity: 2,  color: [1.0, 1.0, 1.0] },   // ceiling
-];
+// Built-in studio: procedural hall with light strips on the ceiling (studio-hall.js).
+// At startup a small version on the main thread (1k, ~70 ms), the full one (renderStudioEnvironment, 4k) in a worker.
+export function createStudioEnvironment(width = 1024, height = width / 2) {
+    const data = renderStudioHall(width, height, new Uint16Array(width * height * 4), THREE.DataUtils.toHalfFloat);
+    return studioTexture(data, width, height);
+}
 
-// 2048×1024: at 512×256 the lower half (ground projection!) was only 128 rows high -> visible
-// rings/steps on the ground, since few texels are stretched over a large area there
-export function createStudioEnvironment(width = 2048, height = 1024) {
-    const boxes = SOFTBOXES.map(b => ({
-        ...b,
-        dir: new THREE.Vector3(...b.dir).normalize(),
-        cosOuter: Math.cos(b.radius),
-        cosInner: Math.cos(b.radius * 0.75),
-    }));
-    const d = new THREE.Vector3();
-    const texture = new ProceduralEquirectTexture(width, height);
-    texture.generationCallback = (polar, uv, coord, color) => {
-        d.setFromSpherical(polar);
-        // base gradient: dark ground, bright sky
-        const t = d.y;
-        const base = t < 0 ? 0.04 + 0.12 * (1 + t) : 0.16 + 0.22 * t;
-        let r = base, g = base, b = base;
-        for (const box of boxes) {
-            const c = d.dot(box.dir);
-            if (c <= box.cosOuter) continue;
-            const f = THREE.MathUtils.smoothstep(c, box.cosOuter, box.cosInner) * box.intensity;
-            r += f * box.color[0];
-            g += f * box.color[1];
-            b += f * box.color[2];
-        }
-        color.setRGB(r, g, b);
-    };
-    texture.update();
+/** built-in studio in a worker (4k: sharp enough as a visible background) */
+export function renderStudioEnvironment(width = 4096, height = width / 2) {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('./studio-hall-worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data: msg }) => { worker.terminate(); resolve(studioTexture(msg.data, msg.width, msg.height)); };
+        worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'studio worker failed')); };
+        worker.postMessage({ width, height });
+    });
+}
+
+function studioTexture(data, width, height) {
+    const texture = new THREE.DataTexture(
+        data, width, height, THREE.RGBAFormat, THREE.HalfFloatType, THREE.EquirectangularReflectionMapping,
+        THREE.RepeatWrapping, THREE.ClampToEdgeWrapping, THREE.LinearFilter, THREE.LinearFilter,
+    );
+    texture.colorSpace = THREE.LinearSRGBColorSpace;
+    texture.name = 'Studio';
+    texture.needsUpdate = true;
     return texture;
 }
 

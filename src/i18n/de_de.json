@@ -1131,7 +1131,7 @@
             },
             "environment": {
                 "lightHdri": "Beleuchtung aus dem HDRI „{name}“",
-                "lightStudio": "weiche, neutrale Studiobeleuchtung",
+                "lightStudio": "weiche, neutrale Beleuchtung einer hellen Halle mit Reihen von Lichtleisten an der Decke",
                 "backgroundHdri": "Hintergrund wie im Bild (Umgebung sichtbar)",
                 "backgroundStudio": "neutraler, dunkler Studiohintergrund mit Verlauf wie im Bild",
                 "sentence": "{light}, {background}.",

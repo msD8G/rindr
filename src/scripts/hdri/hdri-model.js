@@ -24,7 +24,8 @@ export function createPin(type, overrides = {}) {
     return pin;
 }
 
-// Studio softboxes of environment.js (createStudioEnvironment) – directions there are in the coordinates of
+// Softboxes of the former built-in studio (environment.js until Oct. 2026, now the hall of studio-hall.js) –
+// directions there were in the coordinates of
 // ProceduralEquirectTexture's callback, which are swapped (x ↔ z) relative to three.js' equirect mapping
 const STUDIO_BOXES = [
     { name: 'Key', dir: [0.5, 0.8, 0.6], radius: 0.35, intensity: 9, color: [1.0, 0.97, 0.92] },
@@ -35,7 +36,7 @@ const STUDIO_BOXES = [
 
 const toHex = c => '#' + c.map(v => Math.round(Math.min(Math.max(v, 0), 1) * 255).toString(16).padStart(2, '0')).join('');
 
-/** Template "Studio": rebuild of the built-in procedural studio (gradient + 4 softboxes) */
+/** Template "Studio": rebuild of the former built-in procedural studio (gradient + 4 softboxes) */
 export function studioPreset(name = 'Studio') {
     const pins = STUDIO_BOXES.map(b => {
         const [sx, sy, sz] = b.dir, len = Math.hypot(sx, sy, sz);

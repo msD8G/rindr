@@ -13,7 +13,7 @@ import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
 import { GraphApplier } from './graph-apply.js';
 import { NodeEditor } from './node-editor.js';
-import { createStudioEnvironment, loadHdri, listHdris, VignetteBackground } from './environment.js';
+import { createStudioEnvironment, renderStudioEnvironment, loadHdri, listHdris, VignetteBackground } from './environment.js';
 import { PathTracingView } from './pathtracer.js';
 import { runBenchmark, showBenchmarkResult } from './benchmark.js';
 import { SceneGraph } from './scene-graph.js';
@@ -312,7 +312,7 @@ controls.addEventListener('change', () => pathTracing.updateCamera());
 if (!pathTracing.supported) console.warn('WebGPU not available – path tracing disabled.');
 
 // --- Environment: HDRI as light, optionally as background and as ground projection with shadows ---
-const studioTexture = scene.environment;
+let studioTexture = scene.environment;   // built-in studio: small at first, replaced by the 4k version (upgradeStudio)
 const vignette = new VignetteBackground();   // default background when the HDRI is not shown
 scene.background = vignette.texture;
 vignette.update(camera, scene);
@@ -506,6 +506,7 @@ const environment = {
     async select(name, onProgress) {
         const id = ++this._loadId;
         this.hdri = name;
+        if (!name) upgradeStudio();
         let texture = studioTexture;
         const progress = p => {
             onProgress?.(p);
@@ -576,6 +577,20 @@ const environment = {
         if (geometry || groundWas !== ground.enabled || (params && ground.enabled)) pathTracing.updateTransforms();
     },
 };
+// Built-in studio in full resolution (4k – sharp as a visible background and in reflections): rendered in a worker
+// after the start, then swapped in (only while it is chosen, otherwise once it is chosen)
+let studioUpgrade = null;
+function upgradeStudio() {
+    studioUpgrade ??= renderStudioEnvironment().then(async texture => {
+        await pathTracing.prepareEnvironment(texture);
+        const previous = studioTexture;
+        studioTexture = texture;
+        if (environment.texture === previous) environment.useTexture(texture);   // disposes the small one
+        else previous.dispose();
+    }).catch(err => console.warn(`Studio environment: ${err.message}`));
+    return studioUpgrade;
+}
+(window.requestIdleCallback || (fn => setTimeout(fn, 500)))(() => { if (!environment.hdri) upgradeStudio(); }, { timeout: 1500 });
 
 // HDRI via URL: ?hdr=<file from public/hdr>
 const HDR_PARAM = new URLSearchParams(location.search).get('hdr');
