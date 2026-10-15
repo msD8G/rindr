@@ -1005,6 +1005,7 @@
         "motion": "While moving",
         "motionEnabled": "Path tracing (reduced)",
         "samplesPerFrame": "Samples per frame",
+        "kuwahara": "Painterly (Kuwahara)",
         "tessellation": "Tessellation",
         "quality": "Quality",
         "close": "Close (Esc)",

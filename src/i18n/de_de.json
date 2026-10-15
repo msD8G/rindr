@@ -1005,6 +1005,7 @@
         "motion": "Beim Drehen",
         "motionEnabled": "Pathtracing (reduziert)",
         "samplesPerFrame": "Samples je Bild",
+        "kuwahara": "Malstil (Kuwahara)",
         "tessellation": "Tessellierung",
         "quality": "Qualität",
         "close": "Schließen (Esc)",

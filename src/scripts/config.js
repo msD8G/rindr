@@ -19,6 +19,18 @@ export const PATHTRACING = {
         bounces: 3,             // light paths while orbiting
         samples: 1,             // samples per pixel and frame (more = calmer, but slower)
         holdMs: 250,            // stays reduced this long after release (mouse wheel: no switching per notch)
+        // Kuwahara filter (kuwahara.js): paints over the noise of the reduced image instead of showing it, and
+        // after release refines with the samples up to the final image (look: PATHTRACING.kuwahara)
+        kuwahara: true,
+    },
+
+    // Kuwahara look (painterly while orbiting and while the image refines) – values chosen by the user
+    kuwahara: {
+        radius: 4,              // brush size in pixels of the reduced image while orbiting; afterwards the same size
+                                // on screen, shrinking with the samples (∝ 1/√samples, 0 at maxSamples)
+        eccentricity: 2.5,      // 0 = round strokes, larger = stretched along edges
+        sharpness: 0,           // 0 = all sectors equal (soft strokes); > 0 calm areas win over noisy ones
+        maxRadius: 8,           // limit in pixels of the full-resolution image (cost ∝ radius²)
     },
 
     // Technical (benchmark with ?bench in the URL)

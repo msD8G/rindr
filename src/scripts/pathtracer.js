@@ -15,6 +15,7 @@ import { Vector2 } from 'three/webgpu';
 import { PATHTRACING } from './config.js';   // defaults (samples, resolution, bounces, …)
 import { isEnvCdfReady, prepareEnvCdf } from './env-cdf.js';
 import { compileAsync } from './shader-compile.js';
+import { KuwaharaFilter } from './kuwahara.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
@@ -132,11 +133,24 @@ export class PathTracingView {
         });
         this.upscaler = new FSRUpscaler({ Upscaler });
         this.upscaler.sharpness = s.sharpness;
+        this.kuwahara = new KuwaharaFilter(this.renderer, PATHTRACING.kuwahara);
+        // the path tracer's "upscaler" slot: Kuwahara (while orbiting and while the image refines, see
+        // _kuwaharaRadius), then FSR if switched on
+        const fsr = this.upscaler;
+        this._imageChain = {
+            init: renderer => fsr.init(renderer),
+            dispose: () => { fsr.dispose?.(); this.kuwahara.dispose(); },
+            upscale: (texture, camera) => {
+                const radius = this._kuwaharaRadius(texture);
+                if (radius > 0) texture = this.kuwahara.render(texture, radius);
+                return this.upscaleEnabled ? fsr.upscale(texture, camera) : texture;
+            },
+        };
         // the denoise waits until the shaders of the albedo/normal pass are compiled (_prepareDenoiser)
         const denoiseUpdate = this.denoiser.update.bind(this.denoiser);
         this.denoiser.update = target => (this._denoisePrep && !this._denoisePrep.done ? this.denoiser.texture : denoiseUpdate(target));
         pt.setDenoiser(this.denoiseEnabled ? this.denoiser : null);
-        pt.setUpscaler(this.upscaleEnabled ? this.upscaler : null);
+        pt.setUpscaler(this._imageChain);
         debugLog(`[Pathtracer] created in ${(performance.now() - t0).toFixed(0)} ms`);
     }
 
@@ -197,8 +211,7 @@ export class PathTracingView {
     }
 
     setUpscale(enabled) {
-        this.upscaleEnabled = enabled;
-        this.pathTracer?.setUpscaler(enabled ? this.upscaler : null);
+        this.upscaleEnabled = enabled;   // _imageChain reads it
     }
 
     // Take over the scene. The BVHs must already be attached to the geometries (geometry.boundsTree),
@@ -430,6 +443,25 @@ export class PathTracingView {
             prep.done = true;
             debugLog(`[Pathtracer] denoiser shaders compiled in ${(performance.now() - t0).toFixed(0)} ms`);
         });
+    }
+
+    // Kuwahara brush radius in pixels of the path traced image (0 = no filter). While orbiting the configured size
+    // on the reduced image. Afterwards the same size on screen at first, shrinking with the samples (noise ∝
+    // 1/√samples, towards maxSamples another factor down to ½) but at least 1 px until the final image (denoised,
+    // or maxSamples without denoiser) – the painted image gets finer and finer up to the final one instead of
+    // showing the noisy accumulation (user's wish). Samples from the megakernel's tile progress (CPU, no readback).
+    _kuwaharaRadius(texture) {
+        if (!this.motion.kuwahara) return 0;
+        const base = PATHTRACING.kuwahara.radius;
+        if (this._motion) return base;
+        const pt = this.pathTracer, inner = pt._pathTracer;
+        if (texture === this.denoiser.texture || this._isDone()) return 0;   // final image
+        const scale = pt.renderScale / Math.min(this.motion.renderScale, pt.renderScale);
+        const spp = Math.max(1, '_completedSamples' in inner ? inner._completedSamples + inner._tileProgress : pt._lastSampleCounts.avg);
+        const radius = base * scale / Math.sqrt(spp);
+        // endless accumulation (maxSamples 0): fades out on its own
+        if (pt.maxSamples <= 0) return radius >= 0.75 ? radius : 0;
+        return Math.max(1, radius * (1 - 0.5 * Math.min(spp / pt.maxSamples, 1)));
     }
 
     _renderPathTraced(pt) {

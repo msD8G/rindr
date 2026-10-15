@@ -3184,6 +3184,8 @@ function setupGUI() {
         motion.range(t('setup.resolution'), () => pathTracing.motion.renderScale, v => { pathTracing.motion.renderScale = v; }, 0.1, 1, 0.05);
         motion.range(t('setup.bounces'), () => pathTracing.motion.bounces, v => { pathTracing.motion.bounces = v; }, 1, 8, 1);
         motion.range(t('setup.samplesPerFrame'), () => pathTracing.motion.samples, v => { pathTracing.motion.samples = v; }, 1, 4, 1);
+        // Kuwahara (kuwahara.js): paints over the noise while orbiting and while the image refines (look: config.js)
+        motion.toggle(t('setup.kuwahara'), () => pathTracing.motion.kuwahara, v => { pathTracing.motion.kuwahara = v; pathTracing.reset(); });
     }
 
     // changing the quality -> re-tessellate automatically, path tracing restarts afterwards
