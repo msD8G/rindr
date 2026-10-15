@@ -109,21 +109,33 @@
             "iridescence": "Iridescence",
             "emissive": "Emissive colour",
             "emissiveIntensity": "Emissive intensity",
-            "opacity": "Opacity"
+            "opacity": "Opacity",
+            "subsurface": "Subsurface (amount)",
+            "subsurfaceColor": "Scatter colour",
+            "subsurfaceRadius": "Scatter radius (mm)",
+            "toon": "Toon shading",
+            "flat": "Flat (unlit)",
+            "contour": "Contour",
+            "contourColor": "Contour colour",
+            "contourWidth": "Contour width (px)"
         },
         "paramGroups": {
             "base": "Base",
             "clearcoat": "Clearcoat",
             "glass": "Glass",
             "sheen": "Sheen",
-            "effects": "Effects"
+            "effects": "Effects",
+            "subsurface": "Subsurface scattering",
+            "style": "Style"
         },
         "categories": {
             "metal": "Metal",
             "plastic": "Plastic",
             "paint": "Paint",
             "glass": "Glass",
-            "other": "Other"
+            "subsurface": "Translucent (SSS)",
+            "other": "Other",
+            "style": "Style"
         },
         "presets": {
             "metal-chrome": "Chrome",
@@ -155,7 +167,13 @@
             "glass-tinted": "Glass tinted",
             "plastic-clear": "Plastic transparent",
             "ceramic-white": "Ceramic white",
-            "emissive-white": "Emissive white"
+            "emissive-white": "Emissive white",
+            "emissive-neon-green": "Neon green (emissive)",
+            "sss-jelly": "Jelly",
+            "sss-wax": "Wax",
+            "toon-orange": "Toon (orange)",
+            "outline-white": "Outline white",
+            "outline-black": "Outline black"
         },
         "defaultNames": {
             "material": "Material",

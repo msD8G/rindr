@@ -109,21 +109,33 @@
             "iridescence": "Irisieren",
             "emissive": "Leuchtfarbe",
             "emissiveIntensity": "Leuchtkraft",
-            "opacity": "Deckkraft"
+            "opacity": "Deckkraft",
+            "subsurface": "Subsurface (Anteil)",
+            "subsurfaceColor": "Streufarbe",
+            "subsurfaceRadius": "Streuweite (mm)",
+            "toon": "Toon-Schattierung",
+            "flat": "Flach (ohne Licht)",
+            "contour": "Kontur",
+            "contourColor": "Konturfarbe",
+            "contourWidth": "Konturbreite (px)"
         },
         "paramGroups": {
             "base": "Basis",
             "clearcoat": "Klarlack",
             "glass": "Glas",
             "sheen": "Samt",
-            "effects": "Effekte"
+            "effects": "Effekte",
+            "subsurface": "Subsurface Scattering",
+            "style": "Stil"
         },
         "categories": {
             "metal": "Metall",
             "plastic": "Kunststoff",
             "paint": "Lack",
             "glass": "Glas",
-            "other": "Sonstige"
+            "subsurface": "Transluzent (SSS)",
+            "other": "Sonstige",
+            "style": "Stil"
         },
         "presets": {
             "metal-chrome": "Chrom",
@@ -155,7 +167,13 @@
             "glass-tinted": "Glas getönt",
             "plastic-clear": "Kunststoff transparent",
             "ceramic-white": "Keramik weiß",
-            "emissive-white": "Leuchtend weiß"
+            "emissive-white": "Leuchtend weiß",
+            "emissive-neon-green": "Neon-Grün leuchtend",
+            "sss-jelly": "Gelee",
+            "sss-wax": "Wachs",
+            "toon-orange": "Toon (orange)",
+            "outline-white": "Outline weiß",
+            "outline-black": "Outline schwarz"
         },
         "defaultNames": {
             "material": "Material",

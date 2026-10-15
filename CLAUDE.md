@@ -115,6 +115,10 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 ### EXPLODE
 [X] wir brauchen ein Toggle um das Objekt explodieren zu lassen damit man schnelle eine Explosionsdarstellung visualisieren kann. Im Idealfall fliegen die einzelnen Objekte dann smooth auseinander und wieder zusammen.
 
+### STIL-MATERIALIEN
+[X] Toon (farbig), Outline weiß, Outline schwarz (flache Fläche ohne Abstufung + Gegenkontur, 2 px, Konturen auch über HQ) und Neon-Grün leuchtend in der Bibliothek (Details: `docs/materials.md`, `docs/rendering.md`)
+[X] Gelee und Wachs mit Subsurface Scattering (schnelle Näherung nach Barré-Brisebois, Raster + HQ; Details: `docs/materials.md`)
+
 ### VIEW-CUBE
 [X] Perspektiven-Würfel wie bei Blender, floatet unten rechts; Flächen (oben, links, hinten …), Kanten und Ecken anklickbar → Kamera fliegt in diese Ansicht; Ziehen dreht (Details: `docs/ui.md`)
 

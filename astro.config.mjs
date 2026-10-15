@@ -112,6 +112,27 @@ function pathTracerPerfPatch() {
   };
 }
 
+// Subsurface look in three-gpu-pathtracer (materials with `subsurface`, src/scripts/toon.js – fails loudly if the
+// library changed, check on every update): the material packing reads a stand-in per material
+// (subsurfaceStandIn: userData.subsurfacePT over the material – translucent share as rough transmission, gloss as
+// clearcoat, colour absorbed over the distance travelled inside). A random walk in the megakernel looked good but
+// took 2–5× the render time of plain plastic (Oct. 2026) – the user chose this fast approximation instead.
+const SUBSURFACE_MODULE = fileURLToPath(new URL('./src/scripts/subsurface-pt.js', import.meta.url));
+function subsurfacePatch() {
+  return {
+    name: 'rindr-subsurface',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.replace(/\\/g, '/').split('?')[0];
+      if (!file.endsWith('three-gpu-pathtracer/src/webgpu/nodes/PathtracerBVHComputeData.js')) return null;
+      const from = 'const m = materials[ i ];';
+      if (code.split(from).length !== 2) this.error('rindr-subsurface: material loop not found exactly once in PathtracerBVHComputeData.js (three-gpu-pathtracer changed?)');
+      code = code.replace(from, () => 'const m = __subsurfaceStandIn( materials[ i ] );');
+      return { code: `import { subsurfaceStandIn as __subsurfaceStandIn } from ${JSON.stringify(SUBSURFACE_MODULE)};\n` + code, map: null };
+    },
+  };
+}
+
 // Cross-origin isolation: required for SharedArrayBuffer so three-mesh-bvh can build the BVH
 // in parallel on several workers (= CPU cores). In production public/.htaccess sets the
 // same headers.
@@ -136,7 +157,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), subsurfacePatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },

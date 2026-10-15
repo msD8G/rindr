@@ -4,7 +4,7 @@
 // category labels from materials.categories.<category>.
 import { t } from './i18n.js';
 
-export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'other'];
+export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'subsurface', 'style', 'other'];
 
 /** Display name of a preset (also the default name of a material created from it) */
 export const presetName = libraryId => t(`materials.presets.${libraryId}`);
@@ -48,7 +48,18 @@ export const MATERIAL_PRESETS = [
     { libraryId: 'glass-tinted', category: 'glass', params: { color: '#ffffff', metalness: 0, roughness: 0, transmission: 1, ior: 1.5, thickness: 4, attenuationColor: '#5a6b5e', attenuationDistance: 8 } },
     { libraryId: 'plastic-clear', category: 'glass', params: { color: '#ffffff', metalness: 0, roughness: 0.05, transmission: 1, ior: 1.49, thickness: 2 } },
 
+    // --- subsurface scattering (random walk in the path tracer; radius in mm) ---
+    { libraryId: 'sss-jelly', category: 'subsurface', params: { color: '#ffffff', metalness: 0, roughness: 0.06, ior: 1.35, thickness: 1, subsurface: 1, subsurfaceColor: '#e8203a', subsurfaceRadius: 8 } },
+    { libraryId: 'sss-wax', category: 'subsurface', params: { color: '#f4ead6', metalness: 0, roughness: 0.4, ior: 1.45, thickness: 1, subsurface: 1, subsurfaceColor: '#f1dfbf', subsurfaceRadius: 1.5 } },
+
+    // --- style: toon shading (raster) + contour lines (all view modes); matte in the path tracer ---
+    { libraryId: 'toon-orange', category: 'style', params: { color: '#ff7a1a', metalness: 0, roughness: 1, specularIntensity: 0, toon: 1, contour: 1, contourColor: '#000000', contourWidth: 2 } },
+    // outline: plain surface + contour, no light steps (user's choice)
+    { libraryId: 'outline-white', category: 'style', params: { color: '#ffffff', metalness: 0, roughness: 1, specularIntensity: 0, flat: 1, contour: 1, contourColor: '#000000', contourWidth: 2 } },
+    { libraryId: 'outline-black', category: 'style', params: { color: '#141414', metalness: 0, roughness: 1, specularIntensity: 0, flat: 1, contour: 1, contourColor: '#ffffff', contourWidth: 2 } },
+
     // --- other ---
     { libraryId: 'ceramic-white', category: 'other', params: { color: '#f4f3ef', metalness: 0, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.08 } },
     { libraryId: 'emissive-white', category: 'other', params: { color: '#ffffff', metalness: 0, roughness: 0.5, emissive: '#ffffff', emissiveIntensity: 5 } },
+    { libraryId: 'emissive-neon-green', category: 'other', params: { color: '#39ff14', metalness: 0, roughness: 0.5, emissive: '#39ff14', emissiveIntensity: 5 } },
 ];

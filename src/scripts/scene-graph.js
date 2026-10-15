@@ -451,7 +451,8 @@ export class SceneGraph {
         if (entry.kind === 'surface') {
             const swatch = document.createElement('span');
             swatch.className = 'size-2.5 shrink-0 rounded-full ring-1 ring-white/20';
-            swatch.style.background = '#' + (entry.object.material.color?.getHexString() ?? '808080');
+            const m = entry.object.material;   // flat materials carry their colour as emission (toon.js)
+            swatch.style.background = '#' + ((m.flat ? m.emissive : m.color)?.getHexString() ?? '808080');
             row.append(swatch);
         }
 

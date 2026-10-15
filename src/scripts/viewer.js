@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './view-cube.js';
+import { ContourPass } from './contour.js';
 import { HdriEditor } from './hdri/hdri-editor.js';
 import { HdriRenderService } from './hdri/hdri-service.js';
 import { studioPreset, cloneHdri } from './hdri/hdri-model.js';
@@ -597,6 +598,12 @@ const sceneEntries = [
 const updateSlicerHelper = () => { slicer.helper.visible = selection?.kind === 'slicer'; };
 
 const highlighter = new Highlighter(renderer, scene, camera);
+// contour lines of toon/outline materials (contour.js) – over raster and path-traced image, part of exports
+const contours = new ContourPass(renderer, scene, camera, {
+    roots: () => [rootGroup, ...extraModels.map(x => x.root)],
+    hide: () => [ground.mesh],
+    depthScale: () => camera.position.distanceTo(controls.target),
+});
 // fisheye in the raster views (cube map like drei); picking and gizmo get fisheye rays
 const rasterFisheye = new RasterFisheye();
 highlighter.fisheye = rasterFisheye;
@@ -4040,7 +4047,7 @@ if (MODEL_FILE) {
 
 // Debug access for automated tests + fps/memory/polygon display (only with ?debug in the URL)
 if (new URLSearchParams(location.search).has('debug')) {
-    globalThis.__viewer = { getSplats: () => splatMesh, flyToDirection, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
+    globalThis.__viewer = { getSplats: () => splatMesh, flyToDirection, contours, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
 }
 
 // --- Resize ---
@@ -4253,6 +4260,7 @@ renderer.setAnimationLoop(() => {
     // focus line over the raster image (uses its depth buffer; fisheye: already in the cube faces)
     if (focusLine && rasterDrawn && !rasterFisheye.active) dof.renderLine(renderer, scene, [ground.material]);
     if (post) lens.end();
+    if (!rasterFisheye.active) contours.render();   // toon/outline lines (not through the fisheye cube map)
     if (capture) {
         // read in the same task as the rendering (afterwards the canvas image is presented and discarded)
         capture(renderer.domElement.toDataURL('image/png'));

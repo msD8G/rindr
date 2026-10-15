@@ -3,13 +3,14 @@
 //  - Materials from glTF/FBX (source 'import', with textures in def.render – not in the JSON)
 //  - Instances from the library (source 'library', libraryId) and custom ones (source 'custom')
 //  - Assignment to objects (groups/meshes), JSON export/import
-// Every material is a MeshPhysicalNodeMaterial (TSL); the path tracer reads the same
-// physical parameters.
+// Every material is a RindrMaterial (toon.js: MeshPhysicalNodeMaterial + optional toon lighting, TSL); the path
+// tracer reads the same physical parameters. Style params: toon (raster light steps), flat (plain base colour), contour (lines, contour.js).
 import * as THREE from 'three/webgpu';
 import { uniform, screenCoordinate, fract, dot, vec2 } from 'three/tsl';
 import { MATERIAL_PRESETS, presetName } from './material-presets.js';
 import { createImportGraph, IMPORT_SLOTS } from './material-graph.js';
 import { t } from './i18n.js';
+import { RindrMaterial } from './toon.js';
 
 // Parameter description (also for the editor panel). Labels: materials.params.<key>,
 // group labels: materials.paramGroups.<group> (group = id, also used for the collapse state)
@@ -32,6 +33,17 @@ export const PARAMS = [
     { key: 'emissive', type: 'color', default: '#000000', group: 'effects' },
     { key: 'emissiveIntensity', type: 'number', min: 0, max: 20, default: 1, group: 'effects' },
     { key: 'opacity', type: 'number', min: 0, max: 1, default: 1, group: 'effects' },
+    // subsurface scattering (toon.js: random walk in the path tracer, approximation in the raster view);
+    // radius = mean free path in scene units (mm for CAD models)
+    { key: 'subsurface', type: 'number', min: 0, max: 1, default: 0, group: 'subsurface' },
+    { key: 'subsurfaceColor', type: 'color', default: '#ffffff', group: 'subsurface' },
+    { key: 'subsurfaceRadius', type: 'number', min: 0.05, max: 50, default: 2, group: 'subsurface' },
+    // style: toon shading / flat colour (raster; matte in the path tracer) and contour lines (contour.js, all view modes)
+    { key: 'toon', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
+    { key: 'flat', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
+    { key: 'contour', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
+    { key: 'contourColor', type: 'color', default: '#000000', group: 'style' },
+    { key: 'contourWidth', type: 'number', min: 0.5, max: 6, default: 1.5, group: 'style' },
 ];
 const PARAM_BY_KEY = Object.fromEntries(PARAMS.map(p => [p.key, p]));
 
@@ -75,7 +87,7 @@ export class MaterialManager extends EventTarget {
         };
         // Import: the file's textures as nodes, so the node editor shows everything
         if (!full.graph && full.source === 'import' && hasGraphMaps(full.render)) full.graph = createImportGraph(full.render.maps);
-        const material = new THREE.MeshPhysicalNodeMaterial();
+        const material = new RindrMaterial();
         material.maskNode = FADE_MASK;
         material.name = full.name;
         material.userData.materialId = full.id;
@@ -412,6 +424,17 @@ export class MaterialManager extends EventTarget {
         material.emissiveIntensity = p.emissiveIntensity;
         material.opacity = p.opacity;
         material.transparent = p.opacity < 1;
+        material.setSubsurface(p.subsurface, p.subsurfaceColor, p.subsurfaceRadius);   // after the physical params
+        material.toon = p.toon > 0;
+        material.flat = p.flat > 0;
+        if (material.flat) {
+            // flat: no diffuse response, the colour as emission – the path tracer shows it as it is too (no light
+            // steps in HQ), the raster output takes the emission (toon.js)
+            material.color.set(0x000000);
+            material.emissive.set(p.color);
+            material.emissiveIntensity = 1;
+        }
+        material.userData.contour = p.contour > 0 ? { color: p.contourColor, width: p.contourWidth } : null;
         if (def.render) applyRender(material, def.render, !!def.graph?.nodes?.length);
         material.needsUpdate = true;
         // Hook for the node editor (graph -> TSL/textures)

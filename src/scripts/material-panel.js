@@ -299,7 +299,8 @@ export class MaterialPanel {
 
 // CSS preview of a material (hinted sphere)
 export function swatch(params) {
-    const c = params.color || '#808080';
+    // subsurface: the colour of the scattering shows (toon.js mixes it the same way)
+    const c = (params.subsurface ?? 0) > 0.5 ? (params.subsurfaceColor || '#ffffff') : (params.color || '#808080');
     const metal = params.metalness ?? 0;
     const rough = params.roughness ?? 0.5;
     if ((params.transmission ?? 0) > 0.5) {
