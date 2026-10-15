@@ -17,6 +17,7 @@ const expanded = new Set((() => { try { return JSON.parse(localStorage.getItem(E
 const saveExpanded = () => { try { localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded])); } catch { /* storage blocked */ } };
 const BUTTON = 'rounded px-2 py-0.5 text-white/80 hover:bg-white/15';
 const BUTTON_ACTIVE = 'rounded bg-sky-500/40 px-2 py-0.5 text-white';
+const ICON_PENCIL = '<svg viewBox="0 0 16 16" class="size-3.5 fill-none stroke-current" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
 
 // transform mode / reset as icons (the German labels ran out of the panel); label as title + aria-label
 const ICON_SVG = '<svg viewBox="0 0 16 16" class="size-4 fill-none stroke-current" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">';
@@ -235,9 +236,51 @@ export class PropertiesPanel {
         return rows;
     }
 
+    // preview of the current HDRI over the panel width (canvas, drawn by environment.drawPreview with intensity,
+    // light boost and rotation – the viewer redraws it on every environment change, also live while the HDRI
+    // editor renders); own HDRIs: pencil at the top right opens the HDRI editor
+    _hdriPreview(env) {
+        const wrap = el('div', 'relative mb-1.5');
+        const canvas = el('canvas', 'block aspect-[2/1] w-full rounded bg-black/40 ring-1 ring-white/10');
+        canvas.title = t('properties.environment.previewTitle');
+        wrap.append(canvas);
+        this.fields.hdriPreview = canvas;
+        // copyright holder from the HDRI file's metadata (EXR owner/copyright/comments, HDR header) – only if present,
+        // updated with the preview (refreshEnvironmentPreview)
+        const badge = el('div', 'absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)] truncate rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur-sm');
+        badge.hidden = true;
+        wrap.append(badge);
+        this.fields.hdriCredit = badge;
+        const editor = this.ctx.hdriEditor;
+        const ownId = editor && env.hdri?.startsWith(editor.prefix) ? env.hdri.slice(editor.prefix.length) : null;
+        if (ownId) {
+            const edit = el('button', `absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded backdrop-blur-sm ${editor.isOpen(ownId) ? 'bg-sky-500/70 text-white' : 'bg-black/55 text-white/85 hover:bg-black/75 hover:text-white'}`);
+            edit.innerHTML = ICON_PENCIL;
+            edit.title = t('properties.environment.editHdriTitle');
+            edit.onclick = () => editor.edit(ownId);
+            wrap.append(edit);
+        }
+        requestAnimationFrame(() => this.refreshEnvironmentPreview());   // after layout (canvas size)
+        return wrap;
+    }
+
+    /** environment changed (texture, intensity, light boost, rotation): redraw the preview if it is shown */
+    refreshEnvironmentPreview() {
+        const canvas = this.fields?.hdriPreview;
+        if (!canvas?.isConnected) return;
+        this.ctx.environment.drawPreview?.(canvas);
+        const badge = this.fields.hdriCredit, credit = this.ctx.environment.texture?.userData?.credit;
+        if (badge) {
+            badge.hidden = !credit;
+            badge.textContent = credit ? `© ${credit}` : '';
+            badge.title = credit ? t('properties.environment.creditTitle', { credit }) : '';
+        }
+    }
+
     _environmentSection() {
         const { scene, environment: env } = this.ctx;
         const rows = [
+            this._hdriPreview(env),
             this._hdriRow(env),
             this._rangeRow(t('properties.environment.intensity'), env.intensity, 0, 3, 0.05, this._tracked(t('properties.environment.undo.intensity'), 'env-intensity',
                 () => env.intensity, v => { env.intensity = v; this.ctx.onEnvironmentChange({ params: true }); }),
@@ -304,42 +347,37 @@ export class PropertiesPanel {
         });
     }
 
-    // HDRI choice: procedural studio or a file from public/hdr
+    // HDRI choice: procedural studio, a file from public/hdr or an own HDRI of the HDRI editor (+ new / edit)
     _hdriRow(env) {
         const select = el('select', INPUT.replace('text-right', 'text-left') + ' cursor-pointer');
         select.title = t('properties.environment.hdriTitle');
         select.append(new Option(t('properties.environment.studio'), ''));
         for (const file of env.hdris) select.append(new Option(file.replace(/\.(hdr|exr)$/i, ''), file));
+        const editor = this.ctx.hdriEditor;
+        const own = editor?.list() ?? [];
+        if (own.length) {
+            const group = el('optgroup');
+            group.label = t('properties.environment.ownHdris');
+            for (const doc of own) group.append(new Option(doc.name, editor.prefix + doc.id));
+            select.append(group);
+        }
+        // last entry: new own HDRI in the HDRI editor (studio template)
+        const NEW = '\u0000new';
+        if (editor) {
+            const opt = new Option(t('properties.environment.newHdri'), NEW);
+            opt.title = t('properties.environment.newHdriTitle');
+            select.append(opt);
+        }
         select.value = env.hdri;
-        const status = el('div', 'mb-1 text-white/40', env.loading ? t('properties.environment.loading') : '');
-        status.hidden = !env.loading;
-        this.fields.hdrStatus = status;
-        // always write the status into the current panel (it may be rebuilt while loading)
-        const setStatus = text => {
-            const s = this.fields.hdrStatus;
-            if (!s) return;
-            s.textContent = text;
-            s.hidden = !text;
-        };
         select.onchange = async () => {
+            if (select.value === NEW) { select.value = env.hdri; editor.create(); return; }
             const previous = env.hdri, next = select.value;
-            const load = name => env.select(name).catch(e => console.error(`HDRI ${name}: ${e.message}`));
+            const load = name => env.select(name).catch(e => this.ctx.onHdriError?.(name, e));
             this.ctx.record?.({ label: t('properties.environment.undo.hdri'), undo: () => load(previous), redo: () => load(next) });
-            env.loading = true;
-            setStatus(t('properties.environment.loading'));
-            try {
-                const done = await env.select(select.value, p => {
-                    if (p.decoding) setStatus(t('properties.environment.decoding'));
-                    else if (p.total) setStatus(t('properties.environment.loadingPercent', { percent: Math.round(p.loaded / p.total * 100) }));
-                });
-                if (done) { env.loading = false; setStatus(''); }
-            } catch (e) {
-                env.loading = false;
-                setStatus(t('properties.environment.error', { message: e.message }));
-            }
+            await load(next);   // loading/decoding progress: status monitor bottom left (environment.select)
         };
         const wrap = el('div');
-        wrap.append(this._row(t('properties.environment.hdri'), select), status);
+        wrap.append(this._row(t('properties.environment.hdri'), select));
         return wrap;
     }
 

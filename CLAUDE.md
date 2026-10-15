@@ -22,6 +22,18 @@ Ein performater 3D Viewer im Browser der Qualitativ mit Keyshot oder Vray mithal
 [X] Die Bearbeitung der einzlenen Materialien basiert per NODES. 
 [X] Materialien lassen sich exportieren oder importieren (JSON)
 
+### HDRI-EDITOR (Okt. 2026 – Details/Checkliste: `docs/hdri-editor.md`)
+Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anlegen (Vorlage: Studio).
+[X] Export des HDRI
+[X] Hintergrundverlauf
+[X] Verschiebbare, interaktive Sonne & Himmel
+[X] Bodenfarbe für Sonne & Himmel
+[X] Parameter für Sonnengröße
+[X] Abgerundete Ecken für rechteckige Pins (Pins = Licht-Marker, verschieb- und editierbar)
+[X] Verlaufs-Pins (mit Verlaufs-Editor)
+[–] ~~Farbanpassungen für Bild-Pins~~ – entfallen: keine Bild-Pins (Nutzer: Kreis, Rechteck, Verlauf reichen)
+[X] HDRI-Editor-Arbeitsfläche abdocken
+
 ### OBJEKTE MANIPULIEREN
 [X] Jedes Objekt in der Szene lässt sich verschieben (XYZ) und drehen (XYZ)
 
@@ -49,6 +61,7 @@ Ein performater 3D Viewer im Browser der Qualitativ mit Keyshot oder Vray mithal
 | `docs/rendering.md` | Raster-Darstellung – Darstellungsarten, Batcher (`render-batcher.js`), Schatten, Einblenden, Hervorhebung, Schnittebene, eigene Render-Durchgänge. |
 | `docs/pathtracer.md` | Pathtracer (HQ) – `src/scripts/pathtracer.js` (three-gpu-pathtracer WebGPU, Vite-Patches in astro.config.mjs). |
 | `docs/camera-lens.md` | Kamera, Tiefenschärfe, Fisheye, Objektiv-Effekte – `dof.js`, `fisheye.js`, `lens-effects.js`, `volume-shafts.js`, Kamera-Teile von `viewer.js`/`properties.js`. |
+| `docs/hdri-editor.md` | HDRI-Editor – eigene prozedurale HDRIs (`src/scripts/hdri/`): Modell, Generator, Pins, Sonne & Himmel, Export, Fenster. |
 | `docs/environment.md` | Umgebung, HDRI, Boden – `environment.js`, `ground.js`, `background-dome.js`, `contact-shadow.js`, `shadow-catcher.js`. |
 | `docs/materials.md` | Materialien und Node-Editor – `material-*.js`, `graph-apply.js`, `node-editor.js`. |
 | `docs/scene-state.md` | Szenen-Zustand, Speichern/Laden, Assets, Rückgängig – `scene-state.js`, `assets.js`, `history.js`, Teile von `viewer.js`. |

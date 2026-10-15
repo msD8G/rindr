@@ -15,6 +15,7 @@ self.onmessage = async ({ data: { url, maxWidth = MAX_WIDTH } }) => {
         // OpenEXR magic number 76 2f 31 01
         const isExr = bytes[0] === 0x76 && bytes[1] === 0x2f && bytes[2] === 0x31 && bytes[3] === 0x01;
         const result = isExr ? decodeExr(buffer, maxWidth) : decode(bytes, maxWidth);
+        result.credit = isExr ? exrCredit(bytes) : result.credit;   // copyright holder from the metadata, if any
         self.postMessage({ type: 'done', ...result }, [result.data.buffer]);
     } catch (e) {
         self.postMessage({ type: 'error', message: e.message || String(e) });
@@ -49,9 +50,11 @@ function decode(bytes, maxWidth) {
         return s;
     };
     if (!line().startsWith('#?')) throw new Error('Not a Radiance HDR file');
+    let credit = null;
     for (;;) {
         const l = line();
         if (l === '') break;
+        credit ??= headerCredit(l);
         if (l.startsWith('FORMAT=') && l !== 'FORMAT=32-bit_rle_rgbe') throw new Error(`HDR format not supported: ${l}`);
         if (pos >= bytes.length) throw new Error('HDR header incomplete');
     }
@@ -93,7 +96,7 @@ function decode(bytes, maxWidth) {
         }
         acc.fill(0);
     }
-    return { data: out, width: ow, height: oh, sourceWidth: width, sourceHeight: height };
+    return { credit, data: out, width: ow, height: oh, sourceWidth: width, sourceHeight: height };
 }
 
 // OpenEXR: EXRLoader delivers float RGBA (or fewer channels), rows already bottom to top
@@ -161,3 +164,40 @@ function readScanline(bytes, pos, scan, width) {
     if (pos > bytes.length) throw new Error('HDR data incomplete');
     return { pos, planar: true };
 }
+
+// --- copyright holder from the file's metadata (badge in the environment panel's preview) ---
+
+// Radiance header line: "# Copyright … " / "COPYRIGHT=…" / "AUTHOR=…" / "OWNER=…" (no standard – common variants)
+function headerCredit(line) {
+    const kv = line.match(/^\s*#?\s*(copyright|owner|author|artist)\s*[=:]\s*(.+)$/i);
+    if (kv) return clean(kv[2]);
+    const c = line.match(/^\s*#\s*((?:©|\(c\)|copyright)\s*.+)$/i);
+    return c ? clean(c[1].replace(/^(©|\(c\)|copyright)\s*/i, '')) : null;
+}
+
+// OpenEXR header: string attributes "owner" (standard: copyright holder), "copyright", else a copyright line in
+// "comments"
+function exrCredit(bytes) {
+    const attrs = {};
+    let i = 8;
+    const str = (a, b) => new TextDecoder().decode(bytes.subarray(a, b));
+    try {
+        while (i < bytes.length && bytes[i] !== 0) {
+            const n1 = bytes.indexOf(0, i), name = str(i, n1);
+            const n2 = bytes.indexOf(0, n1 + 1), type = str(n1 + 1, n2);
+            const size = bytes[n2 + 1] | (bytes[n2 + 2] << 8) | (bytes[n2 + 3] << 16) | (bytes[n2 + 4] << 24);
+            if (n1 < 0 || n2 < 0 || size < 0) break;
+            if (type === 'string') attrs[name.toLowerCase()] = str(n2 + 5, n2 + 5 + size);
+            i = n2 + 5 + size;
+        }
+    } catch { /* broken header: no credit */ }
+    if (attrs.owner) return clean(attrs.owner);
+    if (attrs.copyright) return clean(attrs.copyright);
+    for (const l of (attrs.comments || '').split(/\r?\n/)) {
+        const c = headerCredit(l.startsWith('#') ? l : '# ' + l);
+        if (c) return c;
+    }
+    return null;
+}
+
+const clean = s => String(s).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 120) || null;

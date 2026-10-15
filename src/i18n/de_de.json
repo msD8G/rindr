@@ -497,10 +497,6 @@
             "hdri": "HDRI",
             "hdriTitle": "HDRI aus dem Ordner hdr",
             "studio": "Studio (prozedural)",
-            "loading": "Lade HDRI …",
-            "decoding": "Dekodiere HDRI …",
-            "loadingPercent": "Lade HDRI … {percent} %",
-            "error": "Fehler: {message}",
             "undo": {
                 "intensity": "Umgebungs-Intensität",
                 "rotation": "Umgebung drehen",
@@ -523,7 +519,13 @@
             "floorHeight": "Bodenhöhe",
             "sphere": "Kugel",
             "blend": "Übergang",
-            "softness": "Weichheit"
+            "softness": "Weichheit",
+            "ownHdris": "Eigene (HDRI-Editor)",
+            "newHdri": "+ Neues HDRI…",
+            "newHdriTitle": "Eigenes HDRI im HDRI-Editor anlegen (Vorlage: Studio)",
+            "editHdriTitle": "Im HDRI-Editor bearbeiten",
+            "previewTitle": "Aktuelles HDRI (Vorschau)",
+            "creditTitle": "Copyright laut HDRI-Datei: {credit}"
         },
         "slicer": {
             "axis": "Achse",
@@ -905,7 +907,8 @@
         "bcfNoElements": {
             "one": "Das Bauteil des Tickets ist in den geladenen IFC-Modellen nicht vorhanden",
             "other": "Die {count} Bauteile des Tickets sind in den geladenen IFC-Modellen nicht vorhanden"
-        }
+        },
+        "renderingHdri": "Berechne HDRI…"
     },
     "viewCube": {
         "title": "Ansicht wählen: Fläche, Kante oder Ecke anklicken – ziehen dreht die Kamera. Tasten: T oben, F vorne, B hinten, D unten, L links, R rechts",
@@ -1331,5 +1334,93 @@
         "authorAs": "Als {author}",
         "setAuthor": "Autor festlegen …",
         "anonymous": "Anonym"
+    },
+    "hdriEditor": {
+        "title": "HDRI-Editor",
+        "resolution": "Auflösung",
+        "export": "Export",
+        "exportHdrTitle": "Als Radiance-HDR speichern (.hdr)",
+        "exportExrTitle": "Als OpenEXR speichern (.exr, Half-Float)",
+        "exporting": "Exportiere…",
+        "exported": "Gespeichert: {name}",
+        "exportError": "Export fehlgeschlagen: {message}",
+        "rendering": "Berechne…",
+        "duplicate": "Duplizieren",
+        "delete": "Löschen",
+        "close": "Schließen",
+        "deleteTitle": "HDRI löschen",
+        "deleteMessage": "Das eigene HDRI „{name}“ löschen?",
+        "copyName": "{name} Kopie",
+        "newName": "Eigenes HDRI {n}",
+        "missing": "Eigenes HDRI nicht gefunden",
+        "assetDetail": "Eigenes HDRI (HDRI-Editor, in der Szene gespeichert)",
+        "undo": "HDRI bearbeiten",
+        "background": "Hintergrund",
+        "mode": "Art",
+        "modes": {
+            "color": "Farbe",
+            "gradient": "Verlauf",
+            "sky": "Sonne & Himmel"
+        },
+        "color": "Farbe",
+        "brightness": "Helligkeit",
+        "sunSky": "Sonne & Himmel",
+        "sunAzimuth": "Sonne Richtung",
+        "sunElevation": "Sonne Höhe",
+        "sunSize": "Sonnengröße (°)",
+        "sunIntensity": "Sonne",
+        "skyIntensity": "Himmel",
+        "turbidity": "Dunst",
+        "groundColor": "Bodenfarbe",
+        "groundIntensity": "Boden",
+        "sunHint": "Die Sonne lässt sich auf der Arbeitsfläche verschieben. Größere Sonne = weichere Schatten bei gleicher Helligkeit.",
+        "pins": "Pins",
+        "pin": "Pin",
+        "add": {
+            "circle": "+ Kreis",
+            "rect": "+ Rechteck",
+            "gradient": "+ Verlauf"
+        },
+        "types": {
+            "circle": "Kreis",
+            "rect": "Rechteck",
+            "gradient": "Verlauf"
+        },
+        "pinVisible": "Pin sichtbar",
+        "pinDuplicate": "Pin duplizieren",
+        "pinDelete": "Pin löschen (Entf)",
+        "noPins": "Noch keine Pins – oben einen hinzufügen.",
+        "name": "Name",
+        "shape": "Form",
+        "shapes": {
+            "circle": "Kreis / Ellipse",
+            "rect": "Rechteck"
+        },
+        "fill": "Füllung",
+        "fills": {
+            "color": "Farbe",
+            "gradient": "Verlauf"
+        },
+        "azimuth": "Richtung (°)",
+        "elevation": "Höhe (°)",
+        "width": "Breite (°)",
+        "height": "Höhe (°)",
+        "rotation": "Drehung (°)",
+        "cornerRadius": "Eckenradius",
+        "falloff": "Weicher Rand",
+        "blend": "Mischung",
+        "blends": {
+            "add": "Addieren (Licht)",
+            "normal": "Abdecken"
+        },
+        "gradientType": "Verlaufsart",
+        "gradientTypes": {
+            "linear": "Linear",
+            "radial": "Radial"
+        },
+        "gradientBottom": "unten",
+        "gradientTop": "oben",
+        "gradientAddHint": "Klick in den Verlauf fügt einen Farbstopp hinzu",
+        "stopHint": "Doppelklick = Farbe · ziehen = verschieben · nach oben/unten wegziehen = entfernen"
     }
 }

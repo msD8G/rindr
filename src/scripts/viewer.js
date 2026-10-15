@@ -1,6 +1,9 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './view-cube.js';
+import { HdriEditor } from './hdri/hdri-editor.js';
+import { HdriRenderService } from './hdri/hdri-service.js';
+import { studioPreset, cloneHdri } from './hdri/hdri-model.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { TESS_PRESETS, normalizeQuality, abortStepImport, buildBVHIsolated, fetchStepFile, readStepFile, releaseStepFile, tessellateStep, ImportLimitError } from './step-importer.js';
 import { IMPORT, KI, SPLATS, RASTER } from './config.js';
@@ -348,6 +351,96 @@ if (pathTracing.supported) {
         src.dispose();
     }).catch(err => console.warn('[Ground] BVH in worker failed:', err));
 }
+// Preview of the environment for the environment panel. Per texture once a linear RGB copy (up to 1024 × 512,
+// box-filtered from the half float data – point samples looked blocky, cached); per draw bilinear into the canvas
+// at device pixels, × exposure (intensity × light boost), shifted by the rotation (world azimuth a shows texture
+// azimuth a + rotation – three.js looks up rotationᵀ · direction), ACES + sRGB like the HDRI editor's canvas →
+// a few ms, live while dragging the sliders.
+const envPreviewBase = new WeakMap();
+function previewBase(tex) {
+    const img = tex?.image;
+    if (!img?.data || !img.width) return null;
+    let base = envPreviewBase.get(tex);
+    if (base) return base;
+    const { data, width, height } = img;
+    const W = Math.min(1024, width), H = Math.max(1, W >> 1);
+    const ch = Math.round(data.length / (width * height));
+    const value = data instanceof Uint16Array ? i => THREE.DataUtils.fromHalfFloat(data[i]) : i => data[i];
+    const rgb = new Float32Array(W * H * 3);
+    const fx = width / W, fy = height / H;
+    for (let y = 0; y < H; y++) {
+        // canvas row 0 = top, texture row 0 = bottom
+        const y0 = Math.floor((H - 1 - y) * fy), y1 = Math.max(y0 + 1, Math.floor((H - y) * fy));
+        for (let x = 0; x < W; x++) {
+            const x0 = Math.floor(x * fx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * fx));
+            let r = 0, g = 0, b = 0, n = 0;
+            for (let sy = y0; sy < y1; sy++) {
+                for (let sx = x0; sx < x1; sx++) {
+                    const i = (sy * width + sx) * ch;
+                    r += value(i); g += value(i + 1); b += value(i + 2); n++;
+                }
+            }
+            const o = (y * W + x) * 3;
+            rgb[o] = r / n; rgb[o + 1] = g / n; rgb[o + 2] = b / n;
+        }
+    }
+    base = { W, H, rgb };
+    envPreviewBase.set(tex, base);
+    return base;
+}
+// tone mapping (ACES fit + sRGB, 0…255 as float) indexed by √(x / 64): fine steps in the darks – a linear 4096-step
+// table spanned several 8-bit levels per step there (gradients showed bands)
+const PREVIEW_LUT_SIZE = 16384;
+const PREVIEW_LUT = (() => {
+    const lut = new Float32Array(PREVIEW_LUT_SIZE);
+    for (let i = 0; i < PREVIEW_LUT_SIZE; i++) {
+        const q = i / (PREVIEW_LUT_SIZE - 1), x = 64 * q * q;
+        const a = Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
+        lut[i] = Math.min(1, a <= 0.0031308 ? 12.92 * a : 1.055 * Math.pow(a, 1 / 2.4) - 0.055) * 255;
+    }
+    return lut;
+})();
+// 4 × 4 ordered dither (−0.5…0.5 of an 8-bit step): no visible steps left in soft gradients
+const DITHER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16 - 0.5);
+const toneMapped = (v, dither) => {
+    const i = Math.min(PREVIEW_LUT_SIZE - 1, (Math.sqrt(Math.max(v, 0) / 64) * (PREVIEW_LUT_SIZE - 1)) | 0);
+    return PREVIEW_LUT[i] + dither;
+};
+function drawEnvironmentPreview(canvas, tex, exposure, rotation) {
+    const base = previewBase(tex);
+    if (!base) return;
+    // canvas in device pixels of its CSS size (sharp on HiDPI)
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(w / 2));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    const ctx = canvas.getContext('2d'), out = ctx.createImageData(w, h);
+    const { W, H, rgb } = base;
+    const shift = rotation / (2 * Math.PI) * W;
+    const px = [0, 0, 0];
+    for (let y = 0; y < h; y++) {
+        // bilinear: rows clamped, columns wrap around (equirect)
+        const fy = Math.min(Math.max((y + 0.5) / h * H - 0.5, 0), H - 1), y0 = Math.floor(fy), y1 = Math.min(y0 + 1, H - 1), ty = fy - y0;
+        for (let x = 0; x < w; x++) {
+            let fx = ((x + 0.5) / w * W - 0.5 + shift) % W;
+            if (fx < 0) fx += W;
+            const x0 = Math.floor(fx), x1 = (x0 + 1) % W, tx = fx - x0;
+            const a = (y0 * W + x0) * 3, b = (y0 * W + x1) * 3, c = (y1 * W + x0) * 3, d = (y1 * W + x1) * 3;
+            for (let ch = 0; ch < 3; ch++) {
+                px[ch] = (rgb[a + ch] * (1 - tx) + rgb[b + ch] * tx) * (1 - ty) + (rgb[c + ch] * (1 - tx) + rgb[d + ch] * tx) * ty;
+            }
+            const o = (y * w + x) * 4, dither = DITHER[(y & 3) * 4 + (x & 3)];
+            out.data[o] = toneMapped(px[0] * exposure, dither);   // Uint8ClampedArray rounds + clamps
+            out.data[o + 1] = toneMapped(px[1] * exposure, dither);
+            out.data[o + 2] = toneMapped(px[2] * exposure, dither);
+            out.data[o + 3] = 255;
+        }
+    }
+    ctx.putImageData(out, 0, 0);
+}
+
+// HDRI editor (hdri/, docs/hdri-editor.md): own procedural HDRIs, rendered in a worker
+const CUSTOM_HDRI = 'editor:';
+const hdriService = new HdriRenderService();
 const environment = {
     on: true,
     background: false,
@@ -368,7 +461,24 @@ const environment = {
     centerZ: 0,
     texture: studioTexture,
     hdris: listHdris(),  // files in public/hdr
-    hdri: '',            // '' = procedural studio
+    hdri: '',            // '' = procedural studio, 'editor:<id>' = own HDRI of the HDRI editor
+    custom: new Map(),   // HDRI editor (hdri/): id -> description (hdri-model.js), rendered in a worker
+    /** display name of an own HDRI ('editor:<id>'), otherwise null */
+    customName(name) {
+        return name?.startsWith(CUSTOM_HDRI) ? this.custom.get(name.slice(CUSTOM_HDRI.length))?.name ?? null : null;
+    },
+    /** HDRI editor while editing: show `texture` (the name stays) */
+    useTexture(texture) {
+        const previous = this.texture;
+        this.texture = texture;
+        ground.setEnvironment(texture);
+        this.apply();
+        if (previous !== studioTexture && previous !== texture) previous.dispose();
+    },
+    /** draw the current HDRI into `canvas` (environment panel): × intensity × light boost, turned like the light */
+    drawPreview(canvas) {
+        drawEnvironmentPreview(canvas, this.texture, this.intensity * this.lightBoost, scene.environmentRotation.y);
+    },
     _loadId: 0,
     /**
      * Choose an HDRI ('' = studio). Loads in a worker; when switching quickly the last choice wins.
@@ -382,16 +492,35 @@ const environment = {
         if (!this.hdris.includes(file.name)) this.hdris.push(file.name);
         return this.select(file.name, onProgress);
     },
+    // Progress (loading, decoding, rendering an own HDRI) in the status monitor bottom left – not in the panel;
+    // hidden afterwards unless a model is loading (that one owns the display then)
     async select(name, onProgress) {
         const id = ++this._loadId;
         this.hdri = name;
         let texture = studioTexture;
-        if (name) {
-            // relinked HDRI (asset window): blob URL of the dropped file, otherwise public/hdr
-            texture = await loadHdri(this.hdriUrls[name] || `${import.meta.env.BASE_URL}hdr/${encodeURIComponent(name)}`, onProgress);
-            // path tracer's importance-sampling table in a worker first: raster and HQ switch together
-            if (id === this._loadId) await pathTracing.prepareEnvironment(texture);
-            if (id !== this._loadId) { texture.dispose(); return false; }
+        const progress = p => {
+            onProgress?.(p);
+            if (id === this._loadId) showProgress(t(p.decoding ? 'status.decodingHdri' : 'status.loadingHdri'), p.total ? p.loaded / p.total : undefined);
+        };
+        try {
+            if (name?.startsWith(CUSTOM_HDRI)) {
+                // own HDRI: rendered from its description in the worker
+                const doc = this.custom.get(name.slice(CUSTOM_HDRI.length));
+                if (!doc) throw new Error(t('hdriEditor.missing'));
+                showProgress(t('status.renderingHdri'));
+                texture = await hdriService.texture(doc);
+                if (id === this._loadId) await pathTracing.prepareEnvironment(texture);
+                if (id !== this._loadId) { texture.dispose(); return false; }
+            } else if (name) {
+                // relinked HDRI (asset window): blob URL of the dropped file, otherwise public/hdr
+                progress({});
+                texture = await loadHdri(this.hdriUrls[name] || `${import.meta.env.BASE_URL}hdr/${encodeURIComponent(name)}`, progress);
+                // path tracer's importance-sampling table in a worker first: raster and HQ switch together
+                if (id === this._loadId) await pathTracing.prepareEnvironment(texture);
+                if (id !== this._loadId) { texture.dispose(); return false; }
+            }
+        } finally {
+            if (id === this._loadId && !loading) hideProgress();
         }
         const previous = this.texture;
         this.texture = texture;
@@ -403,6 +532,7 @@ const environment = {
     // Transfer state to scene + path tracer. params: only intensity/rotation changed (fast)
     matte: null,         // image export: plain background colour instead of HDRI/vignette (light unchanged)
     apply({ geometry = false, params = false } = {}) {
+        this.onChange?.();   // preview in the environment panel (texture, intensity, light boost, rotation)
         scene.environment = this.on ? this.texture : null;
         const showHdri = this.on && this.background && !this.matte;
         scene.background = this.matte || (showHdri ? this.texture : vignette.texture);
@@ -564,6 +694,8 @@ const properties = new PropertiesPanel(document.getElementById('properties'), {
     onCameraChange: () => pathTracing.updateCamera(),
     get cameraViews() { return cameraViewApi; },   // defined further down
     get morphs() { return morphApi; },   // defined further down
+    get hdriEditor() { return hdriApi; },   // defined further down
+    onHdriError: (name, err) => { console.error(`HDRI ${name}: ${err.message}`); flashStatus(t('sceneState.hdriError', { name: environment.customName(name) ?? name, message: err.message }), 6000); },
     missingModels: { relink: () => assetsWindow.show(), remove: entry => removeMissingModel(entry) },
     // camera position/rotation from the panel (orbit camera: the target moves along)
     setCameraPose: ({ position, rotation }) => {
@@ -615,6 +747,8 @@ const properties = new PropertiesPanel(document.getElementById('properties'), {
         set: (entry, q) => setPartQuality(nodeOf(entry), q),
     },
 });
+// environment changed (HDRI, HDRI editor rendering, intensity, light boost, rotation): preview in the panel
+environment.onChange = () => properties.refreshEnvironmentPreview();
 const nodeOf = entry => Number(entry.key.slice(1));   // Scene Graph key 'n<index>'
 
 // --- Depth of field: set the focus plane (pivot, click into the model, autofocus) ---
@@ -807,7 +941,7 @@ function checkAssets(state) {
     openedScene = state;
     rebuildPathTracing();
     const hdri = state?.environment?.hdri;
-    missingHdri = hdri && !environment.hdris.includes(hdri) ? hdri : null;
+    missingHdri = hdri && !environment.hdris.includes(hdri) && !environment.customName(hdri) ? hdri : null;
     assetsWindow.render();
     if (assetRows().some(r => r.status === 'missing')) assetsWindow.show();
     updateAssetsTool();
@@ -826,7 +960,8 @@ function assetRows() {
         for (const f of m.files || []) rows.push({ kind: f.kind === 'image' ? 'texture' : 'file', name: f.uri.split(/[\\/]/).pop(), status: 'missing',
             detail: t(f.kind === 'image' ? 'assets.textureOf' : 'assets.bufferOf', { model: m.name }) });
     }
-    if (environment.hdri) rows.push({ kind: 'hdri', name: environment.hdri, status: 'ok' });
+    if (environment.hdri) rows.push({ kind: 'hdri', name: environment.customName(environment.hdri) ?? environment.hdri, status: 'ok',
+        detail: environment.customName(environment.hdri) ? t('hdriEditor.assetDetail') : undefined });
     if (missingHdri) rows.push({ kind: 'hdri', name: missingHdri, status: 'missing' });
     return rows;
 }
@@ -1058,6 +1193,56 @@ const materialPanel = new MaterialPanel(document.getElementById('materials'), ma
 });
 const nodeEditor = new NodeEditor(document.getElementById('node-editor'), materialManager);
 function openNodeEditor(id) { nodeEditor.open(id); }
+
+// --- HDRI editor (hdri/hdri-editor.js): own procedural HDRIs, docked at the bottom or as a free window ---
+const hdriEditor = new HdriEditor(document.getElementById('hdri-editor'), {
+    service: hdriService,
+    // rendered image of a description: shown if that HDRI is (still) the environment
+    onApply: (texture, { final, id }) => {
+        if (environment.hdri !== CUSTOM_HDRI + id) { texture.dispose(); return; }
+        environment.useTexture(texture);
+        if (!final) pathTracing.updateCamera();   // while dragging: reduced path tracing like orbiting
+    },
+    onSave: doc => {
+        environment.custom.set(doc.id, doc);
+        if (selection?.kind === 'environment') properties.show(selection);
+    },
+    onDuplicate: doc => {
+        const copy = cloneHdri(doc);
+        copy.name = t('hdriEditor.copyName', { name: doc.name });
+        editCustomHdri(copy, { add: true });
+    },
+    onDelete: async doc => {
+        const ok = await confirmDialog({ title: t('hdriEditor.deleteTitle'), message: t('hdriEditor.deleteMessage', { name: doc.name }), confirmLabel: t('hdriEditor.delete'), danger: true });
+        if (!ok) return;
+        hdriEditor.close();
+        environment.custom.delete(doc.id);
+        if (environment.hdri === CUSTOM_HDRI + doc.id) await environment.select('');
+        if (selection?.kind === 'environment') properties.show(selection);
+    },
+    onDrag: active => (active ? pathTracing.beginInteraction() : pathTracing.endInteraction()),
+    record: step => history.record(step),
+    onClose: () => { if (selection?.kind === 'environment') properties.show(selection); },   // pencil no longer active
+});
+/** open the HDRI editor for a description (add: new one) – it becomes the environment */
+async function editCustomHdri(doc, { add = false } = {}) {
+    if (add) environment.custom.set(doc.id, doc);
+    hdriEditor.open(doc);
+    if (environment.hdri !== CUSTOM_HDRI + doc.id) {
+        const before = environment.hdri;
+        await environment.select(CUSTOM_HDRI + doc.id);
+        history.record({ label: t('properties.environment.undo.hdri'), undo: () => environment.select(before), redo: () => environment.select(CUSTOM_HDRI + doc.id) });
+    }
+    if (selection?.kind === 'environment') properties.show(selection);
+}
+const hdriApi = {
+    prefix: CUSTOM_HDRI,
+    list: () => [...environment.custom.values()],
+    // new HDRI from the studio template
+    create: () => editCustomHdri(studioPreset(t('hdriEditor.newName', { n: environment.custom.size + 1 })), { add: true }),
+    edit: id => { const doc = environment.custom.get(id); if (doc) editCustomHdri(doc); },
+    isOpen: id => hdriEditor.isOpen && hdriEditor.docId === id,
+};
 
 let selection = null;   // selected Scene Graph entry
 let hovered = null;     // entry under the mouse in the Scene Graph
@@ -2185,7 +2370,7 @@ const kiRender = new KiRender({
     openSettings: () => { setup.show('ki'); setSetupOpen(true); },
     getEnvironment: () => {
         const env = captureState(sceneStateContext).environment;
-        const light = env.hdri ? t('viewer.ki.environment.lightHdri', { name: env.hdri.replace(/\.[^.]+$/, '') }) : t('viewer.ki.environment.lightStudio');
+        const light = env.hdri ? t('viewer.ki.environment.lightHdri', { name: env.customName(env.hdri) ?? env.hdri.replace(/\.[^.]+$/, '') }) : t('viewer.ki.environment.lightStudio');
         const background = t(env.background ? 'viewer.ki.environment.backgroundHdri' : 'viewer.ki.environment.backgroundStudio');
         return t(env.ground ? 'viewer.ki.environment.sentenceGround' : 'viewer.ki.environment.sentence', { light, background });
     },
@@ -3546,8 +3731,12 @@ const sceneStateContext = {
     setViewMode: mode => setViewMode(mode),
     onLightMoved: light => LIGHT_DIRECTIONS.set(light, light.position.clone().normalize()),
     setSlicerEnabled: v => { slicer.enabled = v; pathTracing.setSuspended(v); updateSlicerHelper(); },
-    onHdriProgress: p => showProgress(t(p.decoding ? 'status.decodingHdri' : 'status.loadingHdri'), p.total ? p.loaded / p.total : undefined),
     afterRestore: () => {
+        // HDRI editor: show the restored description of the edited HDRI, close it if that one is gone
+        if (hdriEditor.isOpen) {
+            const doc = environment.custom.get(hdriEditor.docId);
+            if (doc) hdriEditor.setDoc(doc); else hdriEditor.close();
+        }
         setup.refresh();
         pathTracing.updateTransforms();
         pathTracing.updateLights();

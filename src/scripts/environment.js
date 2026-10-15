@@ -111,6 +111,7 @@ export function loadHdri(url, onProgress) {
             );
             texture.colorSpace = THREE.LinearSRGBColorSpace;
             texture.needsUpdate = true;
+            if (msg.credit) texture.userData.credit = msg.credit;   // copyright holder from the file's metadata
             resolve(texture);
         };
         worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'HDR worker failed')); };

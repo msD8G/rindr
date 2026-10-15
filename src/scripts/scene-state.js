@@ -21,6 +21,7 @@
 // quality levels; material IDs of STEP/import materials, however, are not.
 import { viewAngle, setViewAngle } from './fisheye.js';
 import * as THREE from 'three/webgpu';
+import { normalizeHdri } from './hdri/hdri-model.js';
 import { normalizeQuality } from './step-importer.js';
 import { t } from './i18n.js';
 
@@ -163,6 +164,8 @@ export function captureState(ctx) {
             on: env.on, hdri: env.hdri || null,
             intensity: env.intensity, lightBoost: env.lightBoost, rotation: +THREE.MathUtils.radToDeg(scene.environmentRotation.y).toFixed(3),
             background: env.background, ground: env.ground, groundRadius: env.groundRadius, groundSoftness: env.groundSoftness, dome: env.dome, domeShift: env.domeShift, groundHeight: env.groundHeight, domeRadius: env.domeRadius, domeBlend: env.domeBlend,
+            // own HDRIs of the HDRI editor (descriptions, hdri-model.js)
+            custom: env.custom?.size ? [...env.custom.values()] : undefined,
         },
         lights: {
             visible: lightsGroup.visible,
@@ -318,11 +321,14 @@ export async function applyState(ctx, state) {
         if (e.intensity != null) env.intensity = e.intensity;
         env.lightBoost = e.lightBoost ?? 1;
         if (e.rotation != null) scene.environmentRotation.y = THREE.MathUtils.degToRad(e.rotation);
+        // own HDRIs (HDRI editor): replaced by the scene's; the selected one is rendered again from its description
+        if (env.custom) env.custom = new Map((Array.isArray(e.custom) ? e.custom : []).map(d => normalizeHdri(d)).map(d => [d.id, d]));
         const hdri = e.hdri || '';
-        if (hdri !== env.hdri) {
-            if (hdri && !env.hdris.includes(hdri)) warnings.push(t('sceneState.hdriMissing', { name: hdri }));
-            try { await env.select(env.hdris.includes(hdri) ? hdri : '', ctx.onHdriProgress); }
-            catch (err) { warnings.push(t('sceneState.hdriError', { name: hdri, message: err.message })); }
+        const own = !!env.customName?.(hdri);
+        if (hdri !== env.hdri || own) {
+            if (hdri && !env.hdris.includes(hdri) && !own) warnings.push(t('sceneState.hdriMissing', { name: hdri }));
+            try { await env.select(env.hdris.includes(hdri) || own ? hdri : ''); }   // progress: status monitor
+            catch (err) { warnings.push(t('sceneState.hdriError', { name: env.customName?.(hdri) ?? hdri, message: err.message })); }
         }
         env.apply({ geometry: true });
     }

@@ -497,10 +497,6 @@
             "hdri": "HDRI",
             "hdriTitle": "HDRI from the hdr folder",
             "studio": "Studio (procedural)",
-            "loading": "Loading HDRI …",
-            "decoding": "Decoding HDRI …",
-            "loadingPercent": "Loading HDRI … {percent} %",
-            "error": "Error: {message}",
             "undo": {
                 "intensity": "Environment intensity",
                 "rotation": "Rotate environment",
@@ -523,7 +519,13 @@
             "floorHeight": "Floor height",
             "sphere": "Sphere",
             "blend": "Transition",
-            "softness": "Softness"
+            "softness": "Softness",
+            "ownHdris": "Custom (HDRI editor)",
+            "newHdri": "+ New HDRI…",
+            "newHdriTitle": "Create a custom HDRI in the HDRI editor (template: studio)",
+            "editHdriTitle": "Edit in the HDRI editor",
+            "previewTitle": "Current HDRI (preview)",
+            "creditTitle": "Copyright according to the HDRI file: {credit}"
         },
         "slicer": {
             "axis": "Axis",
@@ -905,7 +907,8 @@
         "bcfNoElements": {
             "one": "The element of this issue is not in the loaded IFC models",
             "other": "The {count} elements of this issue are not in the loaded IFC models"
-        }
+        },
+        "renderingHdri": "Rendering HDRI…"
     },
     "viewCube": {
         "title": "Choose a view: click a face, edge or corner – drag to orbit the camera. Keys: T top, F front, B back, D bottom, L left, R right",
@@ -1331,5 +1334,93 @@
         "authorAs": "As {author}",
         "setAuthor": "Set author …",
         "anonymous": "Anonymous"
+    },
+    "hdriEditor": {
+        "title": "HDRI editor",
+        "resolution": "Resolution",
+        "export": "Export",
+        "exportHdrTitle": "Save as Radiance HDR (.hdr)",
+        "exportExrTitle": "Save as OpenEXR (.exr, half float)",
+        "exporting": "Exporting…",
+        "exported": "Saved: {name}",
+        "exportError": "Export failed: {message}",
+        "rendering": "Rendering…",
+        "duplicate": "Duplicate",
+        "delete": "Delete",
+        "close": "Close",
+        "deleteTitle": "Delete HDRI",
+        "deleteMessage": "Delete the custom HDRI “{name}”?",
+        "copyName": "{name} copy",
+        "newName": "Custom HDRI {n}",
+        "missing": "Custom HDRI not found",
+        "assetDetail": "Custom HDRI (HDRI editor, stored in the scene)",
+        "undo": "Edit HDRI",
+        "background": "Background",
+        "mode": "Type",
+        "modes": {
+            "color": "Colour",
+            "gradient": "Gradient",
+            "sky": "Sun & sky"
+        },
+        "color": "Colour",
+        "brightness": "Brightness",
+        "sunSky": "Sun & sky",
+        "sunAzimuth": "Sun direction",
+        "sunElevation": "Sun height",
+        "sunSize": "Sun size (°)",
+        "sunIntensity": "Sun",
+        "skyIntensity": "Sky",
+        "turbidity": "Haze",
+        "groundColor": "Ground colour",
+        "groundIntensity": "Ground",
+        "sunHint": "Drag the sun on the canvas. A larger sun gives softer shadows at the same brightness.",
+        "pins": "Pins",
+        "pin": "Pin",
+        "add": {
+            "circle": "+ Circle",
+            "rect": "+ Rectangle",
+            "gradient": "+ Gradient"
+        },
+        "types": {
+            "circle": "Circle",
+            "rect": "Rectangle",
+            "gradient": "Gradient"
+        },
+        "pinVisible": "Pin visible",
+        "pinDuplicate": "Duplicate pin",
+        "pinDelete": "Delete pin (Del)",
+        "noPins": "No pins yet – add one above.",
+        "name": "Name",
+        "shape": "Shape",
+        "shapes": {
+            "circle": "Circle / ellipse",
+            "rect": "Rectangle"
+        },
+        "fill": "Fill",
+        "fills": {
+            "color": "Colour",
+            "gradient": "Gradient"
+        },
+        "azimuth": "Direction (°)",
+        "elevation": "Height (°)",
+        "width": "Width (°)",
+        "height": "Height (°)",
+        "rotation": "Rotation (°)",
+        "cornerRadius": "Corner radius",
+        "falloff": "Soft edge",
+        "blend": "Blending",
+        "blends": {
+            "add": "Add (light)",
+            "normal": "Cover"
+        },
+        "gradientType": "Gradient type",
+        "gradientTypes": {
+            "linear": "Linear",
+            "radial": "Radial"
+        },
+        "gradientBottom": "bottom",
+        "gradientTop": "top",
+        "gradientAddHint": "Click into the gradient to add a colour stop",
+        "stopHint": "Double-click = colour · drag = move · drag away up/down = remove"
     }
 }
