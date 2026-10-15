@@ -19,6 +19,9 @@ import { KuwaharaFilter } from './kuwahara.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
+// environments up to this size get their importance-sampling table from the library directly (updateEnvironment)
+const SMALL_ENV_PIXELS = 512 * 512;
+
 export class PathTracingView {
     constructor(renderer, { denoiseWeightsUrl }) {
         this.renderer = renderer;
@@ -349,11 +352,15 @@ export class PathTracingView {
 
     // scene.environment / background changed. A new environment first gets its importance-sampling table
     // in a worker (the path tracer keeps the previous one until then); otherwise applied at once.
+    // Small textures (HDRI editor while dragging a pin: 512 × 256, several per second) at once – the library
+    // computes their table in a few ms; through the worker every new one dropped the previous preparation, the
+    // path tracer only showed the change once the mouse stood still.
     updateEnvironment() {
         if (!this.ready) return;
         const token = ++this._envToken;
         const env = this.pathTracer.scene.environment;
-        if (isEnvCdfReady(env)) { this.pathTracer.updateEnvironment(); return; }
+        const small = env?.image?.width * env?.image?.height <= SMALL_ENV_PIXELS;
+        if (small || isEnvCdfReady(env)) { this.pathTracer.updateEnvironment(); return; }
         prepareEnvCdf(env).then(() => {
             if (token === this._envToken && this.ready) this.pathTracer.updateEnvironment();
         });
