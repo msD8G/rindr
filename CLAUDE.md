@@ -101,6 +101,9 @@ Ein performater 3D Viewer im Browser der Qualitativ mit Keyshot oder Vray mithal
 ### EXPLODE
 [X] wir brauchen ein Toggle um das Objekt explodieren zu lassen damit man schnelle eine Explosionsdarstellung visualisieren kann. Im Idealfall fliegen die einzelnen Objekte dann smooth auseinander und wieder zusammen.
 
+### VIEW-CUBE
+[X] Perspektiven-Würfel wie bei Blender, floatet unten rechts; Flächen (oben, links, hinten …), Kanten und Ecken anklickbar → Kamera fliegt in diese Ansicht; Ziehen dreht (Details: `docs/ui.md`)
+
 ### KI RENDERING
 [X] Neben dem HQ-Button soll noch ein KI-Button rein der das aktuelle HQ-Bild an eine Bildgenerierung-KI schickt.
 [X] Der große Vorteil ist dass wir nicht nur das aktuelle Bild an die KI senden können sondern im Prompt gleich alle verwendeten Materialien beschreiben können, wir geben also direkt unsere Materialnamen mit statt nur der Farbinformation

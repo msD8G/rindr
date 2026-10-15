@@ -452,7 +452,7 @@
                 "one": "{count} part ({groups} surface groups)",
                 "other": "{count} parts ({groups} surface groups)"
             },
-            "hint": "{parts} – “Assign to selection” replaces the material on all of them. Shift+click: add/remove, Ctrl+A: all, F: frame, H: hide.",
+            "hint": "{parts} – “Assign to selection” replaces the material on all of them. Shift+click: add/remove, Ctrl+A: all, A: frame, H: hide.",
             "noTransform": "Move/rotate only works on whole parts, not on a material selection."
         },
         "transform": {
@@ -463,7 +463,7 @@
             "modeTitle": {
                 "translate": "Move (W)",
                 "rotate": "Rotate (E)",
-                "scale": "Scale (R)"
+                "scale": "Scale (S)"
             },
             "reset": "Reset",
             "position": "Position",
@@ -906,6 +906,15 @@
             "one": "The element of this issue is not in the loaded IFC models",
             "other": "The {count} elements of this issue are not in the loaded IFC models"
         }
+    },
+    "viewCube": {
+        "title": "Choose a view: click a face, edge or corner – drag to orbit the camera. Keys: T top, F front, B back, D bottom, L left, R right",
+        "front": "Front",
+        "back": "Back",
+        "left": "Left",
+        "right": "Right",
+        "top": "Top",
+        "bottom": "Bottom"
     },
     "pathtracing": {
         "phases": {

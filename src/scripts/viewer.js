@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { ViewCube } from './view-cube.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { TESS_PRESETS, normalizeQuality, abortStepImport, buildBVHIsolated, fetchStepFile, readStepFile, releaseStepFile, tessellateStep, ImportLimitError } from './step-importer.js';
 import { IMPORT, KI, SPLATS, RASTER } from './config.js';
@@ -647,6 +648,8 @@ controls.addEventListener('change', () => {
     dof.apply();
     properties.refreshFocus();
 });
+// view keys (view cube directions)
+const VIEW_KEYS = { t: [0, 1, 0], f: [0, 0, 1], b: [0, 0, -1], d: [0, -1, 0], l: [-1, 0, 0], r: [1, 0, 0] };
 // text fields keep their own Ctrl+Z (sliders, colour pickers, checkboxes do not)
 const isTextField = el => !!el.closest?.('textarea, select, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=button])');
 window.addEventListener('keydown', e => {
@@ -668,14 +671,18 @@ window.addEventListener('keydown', e => {
     if (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) toggleUi();
     if (e.key === 'w' || e.key === 'W') { transformer.setMode('translate'); properties.show(selection); }
     if (e.key === 'e' || e.key === 'E') { transformer.setMode('rotate'); properties.show(selection); }
-    if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) { transformer.setMode('scale'); properties.show(selection); }
+    // S: scale (was R – R is the right view now, user's choice)
+    if (key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) { transformer.setMode('scale'); properties.show(selection); }
+    // views like the view cube: T top, F front, B back, D bottom (down), L left, R right
+    const view = !e.ctrlKey && !e.metaKey && !e.altKey && VIEW_KEYS[key];
+    if (view) flyToDirection(new THREE.Vector3(...view));
     if (key === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey && !splatMesh) toggleExplode();
     if (e.key === 'Escape') {
         if (focusPick) endFocusPick();
         else if (nodeEditor.isOpen) nodeEditor.close(); else sceneGraph.select(null);
     }
-    // F: frame the camera on the selection, H: hide the selection
-    if (key === 'f' && isModelEntry(selection)) frameObject(selection.object);
+    // A: frame the camera on the selection (was F – F is the front view now), H: hide the selection
+    if (key === 'a' && !e.ctrlKey && !e.metaKey && !e.altKey && isModelEntry(selection)) frameObject(selection.object);
     // Z: centre the camera on the whole (visible) model and zoom in
     if (key === 'z' && !e.ctrlKey && !e.metaKey && !e.altKey && rootGroup) frameObject(extraModels.length ? slicer.group : rootGroup);
     if (key === 'h' && isModelEntry(selection)) hideSelection();
@@ -968,7 +975,7 @@ function openQuadMenu(x, y) {
     const canTransform = hasSel && !!gizmoTarget(selection);
     const mode = m => ({
         label: t(`quadMenu.${m}`),
-        shortcut: { translate: 'W', rotate: 'E', scale: 'R' }[m],
+        shortcut: { translate: 'W', rotate: 'E', scale: 'S' }[m],
         active: canTransform && transformer.mode === m,
         disabled: !canTransform,
         onClick: () => { transformer.setMode(m); properties.show(selection); },
@@ -1617,8 +1624,14 @@ function updateFlight() {
     if (!flight) return;
     const u = Math.min((performance.now() - flight.t0) / flight.duration, 1);
     const k = u * u * (3 - 2 * u);
-    camera.position.lerpVectors(flight.fromPos, flight.toPos, k);
-    controls.target.lerpVectors(flight.fromTarget, flight.toTarget, k);
+    if (flight.orbit) {   // view cube: azimuth and elevation around the orbit centre, the distance stays
+        const o = flight.orbit;
+        _flightDir.setFromSphericalCoords(o.dist, o.fromPhi + (o.toPhi - o.fromPhi) * k, o.fromTheta + o.dTheta * k);
+        camera.position.copy(o.center).add(_flightDir);
+    } else {
+        camera.position.lerpVectors(flight.fromPos, flight.toPos, k);
+        controls.target.lerpVectors(flight.fromTarget, flight.toTarget, k);
+    }
     if (flight.toRoll !== undefined) {   // views with roll: the shorter way round
         const d = ((flight.toRoll - flight.fromRoll + 540) % 360) - 180;
         camera.userData.roll = flight.fromRoll + d * k;
@@ -1629,6 +1642,47 @@ function updateFlight() {
         endFlightInteraction();
     }
 }
+const _flightDir = new THREE.Vector3();
+
+// --- View cube (view-cube.js): click = fly to the view, drag = orbit like the mouse in the viewport ---
+// The camera turns around the current orbit centre (a straight flight to the opposite side would pass through
+// the centre), distance kept, roll back to 0. Interpolated in azimuth + elevation (OrbitControls' coordinates):
+// a rotation along the great circle (slerp) reached top/bottom with the azimuth of the start and swung it
+// around to the top view's in the last frames (right → top: a 90° jump). Top/bottom: OrbitControls needs an
+// azimuth → tilted minimally towards the front, so the front is at the bottom of the top view (at the top of
+// the bottom view), like Blender.
+function flyToDirection(dir) {
+    streamFit.active = false;
+    cancelFlight();
+    const center = controls.target.clone();
+    const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(center));
+    const to = new THREE.Spherical().setFromVector3(Math.abs(dir.y) > 0.999 ? new THREE.Vector3(0, Math.sign(dir.y), 1e-3) : dir);
+    // shorter way round in azimuth; from top/bottom (azimuth undefined there) it simply turns into the new one
+    const dTheta = ((to.theta - from.theta) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    flight = {
+        t0: performance.now(), duration: 500,
+        orbit: { center, dist: from.radius, fromTheta: from.theta, dTheta, fromPhi: from.phi, toPhi: to.phi },
+        fromRoll: camera.userData.roll || 0, toRoll: 0,
+    };
+    flightInteraction = true;
+    pathTracing.beginInteraction();
+}
+const _orbit = new THREE.Spherical();
+function orbitCamera(dx, dy) {
+    const offset = camera.position.clone().sub(controls.target);
+    _orbit.setFromVector3(offset);
+    _orbit.theta -= dx * 0.012;
+    _orbit.phi = THREE.MathUtils.clamp(_orbit.phi - dy * 0.012, 1e-4, Math.PI - 1e-4);
+    camera.position.copy(controls.target).add(offset.setFromSpherical(_orbit));
+    controls.update();   // 'change' → path tracing reduced like orbiting with the mouse
+}
+const viewCube = new ViewCube(document.getElementById('view-cube'), {
+    onSelect: dir => flyToDirection(dir),
+    onOrbitStart: () => { cancelFlight(); controls.dispatchEvent({ type: 'start' }); },
+    onOrbit: orbitCamera,
+    onOrbitEnd: () => controls.dispatchEvent({ type: 'end' }),
+});
+
 // Gaussian splats: one cloud without parts – double click flies towards the point hit instead (it becomes the
 // orbit centre, the camera keeps its direction and covers 60 % of the way; again = closer)
 function flyToPoint(point) {
@@ -3797,7 +3851,7 @@ if (MODEL_FILE) {
 
 // Debug access for automated tests + fps/memory/polygon display (only with ?debug in the URL)
 if (new URLSearchParams(location.search).has('debug')) {
-    globalThis.__viewer = { getSplats: () => splatMesh, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
+    globalThis.__viewer = { getSplats: () => splatMesh, flyToDirection, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
 }
 
 // --- Resize ---
@@ -3926,6 +3980,7 @@ renderer.setAnimationLoop(() => {
     exploder.update(frameStart);
     controls.update();
     applyCameraRoll();
+    viewCube.update(camera);
     // clipping planes follow the distance to the orbit centre (zooming far out/close in, flights to far views) –
     // they were only set when a model was framed: far at least 20×, near at most 1/100 of the distance
     const orbitDist = camera.position.distanceTo(controls.target);

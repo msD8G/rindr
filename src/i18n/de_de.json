@@ -452,7 +452,7 @@
                 "one": "{count} Bauteil ({groups} Flächengruppen)",
                 "other": "{count} Bauteile ({groups} Flächengruppen)"
             },
-            "hint": "{parts} – „Auswahl zuweisen“ ersetzt das Material bei allen. Shift+Klick: hinzufügen/entfernen, Strg+A: alle, F: ausrichten, H: ausblenden.",
+            "hint": "{parts} – „Auswahl zuweisen“ ersetzt das Material bei allen. Shift+Klick: hinzufügen/entfernen, Strg+A: alle, A: ausrichten, H: ausblenden.",
             "noTransform": "Verschieben/Drehen nur bei ganzen Bauteilen, nicht bei einer Material-Auswahl."
         },
         "transform": {
@@ -463,7 +463,7 @@
             "modeTitle": {
                 "translate": "Verschieben (W)",
                 "rotate": "Drehen (E)",
-                "scale": "Skalieren (R)"
+                "scale": "Skalieren (S)"
             },
             "reset": "Zurücksetzen",
             "position": "Position",
@@ -906,6 +906,15 @@
             "one": "Das Bauteil des Tickets ist in den geladenen IFC-Modellen nicht vorhanden",
             "other": "Die {count} Bauteile des Tickets sind in den geladenen IFC-Modellen nicht vorhanden"
         }
+    },
+    "viewCube": {
+        "title": "Ansicht wählen: Fläche, Kante oder Ecke anklicken – ziehen dreht die Kamera. Tasten: T oben, F vorne, B hinten, D unten, L links, R rechts",
+        "front": "Vorne",
+        "back": "Hinten",
+        "left": "Links",
+        "right": "Rechts",
+        "top": "Oben",
+        "bottom": "Unten"
     },
     "pathtracing": {
         "phases": {
