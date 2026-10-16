@@ -12,6 +12,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, float, positionWorld, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
 
 const SIZE = 512;
+const _meshBox = new THREE.Box3();
 const BLUR_TAPS = [-4, -3, -2, -1, 0, 1, 2, 3, 4].map(i => [i, Math.exp(-(i * i) / 8)]);
 const BLUR_SUM = BLUR_TAPS.reduce((s, [, w]) => s + w, 0);
 
@@ -70,7 +71,14 @@ export class ContactShadow {
         if (!this.dirty || !root) return;
         this.dirty = false;
         root.updateMatrixWorld(true);
-        const box = this._box.setFromObject(root);
+        // footprint of the model without stray objects (outliers.js – kilometres of helper geometry would spread the
+        // shadow map over nothing)
+        const box = this._box.makeEmpty();
+        root.traverse(c => {
+            if (!c.isMesh || c.userData.stray) return;
+            if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+            box.union(_meshBox.copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
+        });
         if (box.isEmpty()) return;
         const size = box.getSize(new THREE.Vector3());
         const fade = Math.max(size.x, size.y, size.z) * 0.25;

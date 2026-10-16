@@ -43,11 +43,12 @@ export class GuideKernel {
 
         const p = this.params = {
             bvhData: { value: null },
-            globalId,
+            globalIdBand: globalId,
             positionTarget: textureStore(this.position).toWriteOnly(),
             normalTarget: textureStore(this.normal).toWriteOnly(),
             albedoTarget: textureStore(this.albedo).toWriteOnly(),
             size: uniform(new Vector2()),
+            rowOffset: uniform(0, 'uint'),   // first row of this band (dispatches in bands, see update())
             invViewProj: uniform(new Matrix4()),
             cameraWorld: uniform(new Matrix4()),
             cocScale: uniform(0),           // aperture radius · focal length in pixels (0 = no depth of field)
@@ -62,8 +63,9 @@ export class GuideKernel {
 
         // same vertex/surface setup as the megakernel (PathTracerMegaKernel.js)
         const shader = wgslTagFn/* wgsl */`
-            fn compute( globalId: vec3u, size: vec2u, maxChain: u32, specularRoughness: f32, cocScale: f32, invFocus: f32 ) -> void {
+            fn compute( globalIdBand: vec3u, size: vec2u, rowOffset: u32, maxChain: u32, specularRoughness: f32, cocScale: f32, invFocus: f32 ) -> void {
 
+                let globalId = vec3u( globalIdBand.x, globalIdBand.y + rowOffset, globalIdBand.z );
                 if ( globalId.x >= size.x || globalId.y >= size.y ) {
 
                     return;
@@ -205,8 +207,22 @@ export class GuideKernel {
     }
 
     /**
+     * Trace the guides of the whole image: in bands of at most `bandPixels` – one dispatch over a 4K image of a large
+     * scene (rays through mirrors/glass) could take longer than the GPU watchdog allows (Windows TDR ~2 s:
+     * DXGI_ERROR_DEVICE_HUNG, the WebGPU device is lost). Each band is its own dispatch.
+     */
+    trace(renderer, bvhData, width, height, camera, bandPixels = 262_144) {
+        const { kernel } = this.update(bvhData, width, height, camera);
+        const rows = Math.max(8, Math.floor(bandPixels / Math.max(width, 1) / 8) * 8);
+        for (let y = 0; y < height; y += rows) {
+            this.params.rowOffset.value = y;
+            renderer.compute(kernel, [Math.ceil(width / 8), Math.ceil(Math.min(rows, height - y) / 8), 1]);
+        }
+    }
+
+    /**
      * Prepare the kernel for the path tracer's current scene data + size + camera. Returns the compute node to
-     * dispatch and its dispatch size.
+     * dispatch and its dispatch size (one band from row 0 – trace() covers the whole image).
      * @param {object} bvhData path tracer scene data (megakernel's bvhData)
      */
     update(bvhData, width, height, camera) {
@@ -235,7 +251,8 @@ export class GuideKernel {
         const focalPx = height / 2 / Math.tan((camera.fov ?? 50) * Math.PI / 360);
         p.cocScale.value = radius > 0 && camera.focusDistance > 0 ? radius * focalPx : 0;
         p.invFocus.value = camera.focusDistance > 0 ? 1 / camera.focusDistance : 0;
-        return { kernel: this.kernel, dispatch: [Math.ceil(width / 8), Math.ceil(height / 8), 1] };
+        this.params.rowOffset.value = 0;
+        return { kernel: this.kernel, dispatch: [Math.ceil(width / 8), Math.ceil(Math.min(height, 64) / 8), 1] };
     }
 
     dispose() {

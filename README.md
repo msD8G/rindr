@@ -8,7 +8,7 @@
 
 Your local 3D file viewer – with real-time path tracing, right in the browser.
 
-**STEP · glTF/GLB · FBX · STL · PLY · IFC · BCF · Gaussian splats (PLY/SOG)**
+**STEP · glTF/GLB · FBX · MAX · STL · PLY · IFC · BCF · Gaussian splats (PLY/SOG)**
 
 <a href="https://schmarante.github.io/rindr/"><img src="https://img.shields.io/badge/%E2%96%B6%20Live%20demo-schmarante.github.io%2Frindr-2ea44f?style=for-the-badge" alt="Live demo"></a>
 
@@ -20,6 +20,7 @@ Drop a CAD model, a mesh, a BIM file or a Gaussian splat into the window and get
 - **Opens almost anything**
   - **STEP** via a custom CAD kernel: assemblies, colours, instancing, adjustable tessellation quality
   - **glTF/GLB, FBX, STL, PLY**
+  - **MAX (.max)** via an own reader: Editable Mesh/Poly, primitives, text and splines, common modifiers (Extrude, Shell, Bend, FFD, TurboSmooth …), instances, Physical Materials
   - **IFC** (BIM) incl. properties, **BCF** issues
   - **Gaussian splats** (PLY, SOG)
 - **Node-based materials** (three.js TSL) and a material library – drag & drop onto parts in the viewport or the scene graph.

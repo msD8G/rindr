@@ -265,16 +265,25 @@ function sameTransform(a, b) {
         : a.offset.equals(b.offset) && a.rotation.equals(b.rotation) && a.scale.equals(b.scale);
 }
 
+// World box of the meshes below objects (matrices up to date) – without stray objects (userData.stray, outliers.js:
+// an assembly with kilometres of helper geometry would turn around a point far away); only stray ones: those
+function meshBox(objects, box) {
+    for (const all of [false, true]) {
+        for (const o of objects) o.traverse(c => {
+            if (!c.isMesh || (c.userData.stray && !all)) return;
+            if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+            box.union(new THREE.Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
+        });
+        if (!box.isEmpty()) break;
+    }
+    return box;
+}
+
 // Determine the pivot (bounding-box centre in parent space) the first time
 export function ensureTransform(object) {
     if (object.userData.xf) return;
     object.updateMatrixWorld(true);
-    _box.makeEmpty();
-    object.traverse(c => {
-        if (!c.isMesh) return;
-        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
-        _box.union(new THREE.Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
-    });
+    meshBox([object], _box.makeEmpty());
     const center = _box.isEmpty() ? new THREE.Vector3() : _box.getCenter(new THREE.Vector3());
     // world -> parent space
     const pivot = center.applyMatrix4(_inv.copy(object.parent.matrixWorld).invert());
@@ -306,15 +315,8 @@ export function applyTransform(object) {
 
 // common bounding box of several objects (world)
 function worldBox(objects) {
-    const box = new THREE.Box3();
-    for (const o of objects) {
-        o.updateMatrixWorld(true);
-        o.traverse(c => {
-            if (!c.isMesh) return;
-            if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
-            box.union(new THREE.Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
-        });
-    }
+    for (const o of objects) o.updateMatrixWorld(true);
+    const box = meshBox(objects, new THREE.Box3());
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3());
     return box;
 }

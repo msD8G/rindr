@@ -24,6 +24,23 @@
             },
             "estimating": "Modellgröße wird abgeschätzt …"
         },
+        "max": {
+            "notMax": "Keine gültige MAX-Datei",
+            "skipped": {
+                "title": {
+                    "one": "Ein Objekt nicht dargestellt",
+                    "other": "{count} Objekte nicht dargestellt"
+                },
+                "message": "„{name}“ enthält Objekte, deren Form rindr nicht nachbauen kann ({what}) – sie fehlen. In MAX „In Editable Poly umwandeln“ oder als FBX/glTF exportieren, dann sind sie dabei."
+            },
+            "approx": {
+                "title": {
+                    "one": "Ein Objekt angenähert",
+                    "other": "{count} Objekte angenähert"
+                },
+                "message": "„{name}“: Die Wirkung von {what} rechnet rindr selbst nach – die Form stimmt im Groben, im Detail weicht sie von MAX ab."
+            }
+        },
         "mesh": {
             "reading": "Lese {name}...",
             "orienting": "Richte Flächen aus...",
@@ -920,7 +937,7 @@
         "notSceneOrMaterials": "{name}: weder Szene noch Materialien",
         "unsupportedFormat": "Format nicht unterstützt ({extensions})",
         "dropHint": "Datei ins Fenster ziehen",
-        "dropFormats": "STEP (.stp/.step) · glTF/GLB · FBX · STL · PLY · BIM (.ifc/.ifczip) · BCF-Tickets (.bcfzip) · Gaussian Splats (.ply/.sog)",
+        "dropFormats": "STEP (.stp/.step) · glTF/GLB · FBX · MAX (.max) · STL · PLY · BIM (.ifc/.ifczip) · BCF-Tickets (.bcfzip) · Gaussian Splats (.ply/.sog)",
         "qualityReduced": "Großes Modell (≈ {triangles} Dreiecke bei „{from}“) – Qualität automatisch auf „{to}“ gesenkt",
         "modelTooLarge": "Modell zu groß: ≈ {triangles} Dreiecke bei „{quality}“ (Grenze {limit}) – Laden abgebrochen",
         "qualityTooFine": "„{quality}“ ist für dieses Modell zu fein (≈ {triangles} Dreiecke, Grenze {limit}) – Qualität bleibt „{previous}“",
@@ -1159,13 +1176,13 @@
     },
     "page": {
         "title": "RINDR – 3D-Viewer mit Pathtracing im Browser",
-        "description": "STEP, glTF, FBX, STL, BIM (IFC, BCF) und Gaussian Splats direkt im Browser öffnen – lokal, ohne Upload, mit Materialbibliothek und Echtzeit-Pathtracing.",
+        "description": "STEP, glTF, FBX, MAX, STL, BIM (IFC, BCF) und Gaussian Splats direkt im Browser öffnen – lokal, ohne Upload, mit Materialbibliothek und Echtzeit-Pathtracing.",
         "ogImageAlt": "RINDR-Logo (Kuhkopf) mit dem Schriftzug „3D-Viewer im Browser“",
         "loading": "RINDR wird gestartet …",
         "sceneGraph": "Scene Graph",
         "drop": {
             "title": "Datei hier ablegen",
-            "hint": "STEP (.stp/.step), glTF/GLB, FBX, STL, PLY, BIM (.ifc/.ifczip), BCF-Tickets (.bcfzip), Gaussian Splats (.ply/.sog) – Texturen und .bin-Dateien einfach mit hineinziehen",
+            "hint": "STEP (.stp/.step), glTF/GLB, FBX, MAX (.max), STL, PLY, BIM (.ifc/.ifczip), BCF-Tickets (.bcfzip), Gaussian Splats (.ply/.sog) – Texturen und .bin-Dateien einfach mit hineinziehen",
             "addHint": "Mehrere Modelle: zusammen oder nacheinander hineinziehen – sie erscheinen nebeneinander",
             "replaceTitle": "Modelle ersetzen",
             "replaceHint": "Die geladenen Modelle werden entfernt und durch die neue Datei ersetzt",
@@ -1181,7 +1198,7 @@
     },
     "about": {
         "title": "Über",
-        "description": "Your Local 3D-File Viewer – STEP, glTF, FBX, STL, BIM (IFC, BCF) und Gaussian Splats direkt im Browser, mit Pathtracing in Echtzeit.",
+        "description": "Your Local 3D-File Viewer – STEP, glTF, FBX, MAX, STL, BIM (IFC, BCF) und Gaussian Splats direkt im Browser, mit Pathtracing in Echtzeit.",
         "author": "Autor",
         "email": "E-Mail",
         "version": "Version",
@@ -1509,7 +1526,30 @@
     "feature": {
         "hqUnsupported": {
             "title": "HQ nicht verfügbar",
-            "message": "Das Pathtracing braucht WebGPU. Dieser Browser oder diese Grafikkarte unterstützt es nicht – die Ansicht bleibt bei Default."
+            "message": "Das Pathtracing braucht WebGPU. Dieser Browser oder diese Grafikkarte unterstützt es nicht – die Ansicht bleibt bei Default.",
+            "blocked": "Der Browser stellt die Grafikkarte gerade nicht für WebGPU bereit – meist nach einem Grafikkarten-Reset. Browser komplett schließen (alle Fenster) und neu starten. Bleibt es dabei, unterstützen Grafikkarte oder Treiber WebGPU nicht (Status in Chrome: chrome://gpu). Bis dahin bleibt die Ansicht bei Default."
         }
+    },
+    "gpu": {
+        "lost": {
+            "title": "Grafikkarte zurückgesetzt",
+            "message": "Die Grafikkarte war zu lange mit einer Aufgabe beschäftigt und wurde vom System zurückgesetzt – die Darstellung ist angehalten. Nach dem Neuladen rechnet rindr in kleineren Portionen.",
+            "reload": "Neu laden"
+        },
+        "waiting": "Warte auf die Grafikkarte …",
+        "recovered": {
+            "title": "Grafikkarte wieder bereit",
+            "message": "Vor dem Neuladen wurde die Grafikkarte zurückgesetzt. rindr rechnet in dieser Sitzung in kleineren Portionen. Die Details helfen bei der Fehlersuche.",
+            "copy": "Details kopieren",
+            "copied": "Details in die Zwischenablage kopiert"
+        }
+    },
+    "outliers": {
+        "title": {
+            "one": "Auffälliges Objekt ausgeblendet",
+            "other": "{count} auffällige Objekte ausgeblendet"
+        },
+        "message": "„{name}“ enthält Geometrie weit außerhalb oder weit größer als das übrige Modell (bis {size}) – vermutlich ein Hilfsobjekt oder ein Exportfehler. Sie ist ausgeblendet und zählt nicht für Ausrichtung, Kamera und Boden.",
+        "show": "Einblenden"
     }
 }

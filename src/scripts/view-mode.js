@@ -119,15 +119,20 @@ export class ViewModeBar {
         for (const [key, box] of this._groups ?? []) box.hidden = box.separator.hidden = groups.includes(key);
     }
 
-    /** Show the active mode; disabled: unavailable modes (e.g. HQ without WebGPU) */
-    set(mode, { disabled = [] } = {}) {
+    /**
+     * Show the active mode; disabled: modes not possible right now (e.g. HQ with Gaussian splats); unavailable: dimmed
+     * but still clickable, the click explains why (e.g. HQ without WebGPU)
+     */
+    set(mode, { disabled = [], unavailable = [] } = {}) {
         for (const [key, b] of this.buttons) {
             const active = key === mode;
             b.disabled = disabled.includes(key);
+            const dim = b.disabled || unavailable.includes(key);
+            b.setAttribute('aria-disabled', String(dim));
             b.classList.toggle('bg-white/20', active);
             b.classList.toggle('text-white', active);
-            b.classList.toggle('hover:bg-white/10', !active && !b.disabled);
-            b.classList.toggle('opacity-40', b.disabled);
+            b.classList.toggle('hover:bg-white/10', !active && !dim);
+            b.classList.toggle('opacity-40', dim);
         }
     }
 }

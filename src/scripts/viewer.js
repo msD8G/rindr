@@ -46,7 +46,8 @@ import { ModelAnimation, createPlaybar } from './animation.js';
 import { confirmDialog, choiceDialog, dialogOpen } from './dialog.js';
 import { showNotice } from './notice.js';
 import { triangleLimits, deviceMemoryGB, memoryBudget, BYTES_PER_TRIANGLE, formatBytes, setSafeMode } from './memory-budget.js';
-import { beginLoad, endLoad, crashedLoad, markSafe, isSafe, clearSafe } from './load-guard.js';   // patches the path tracer's background lookup – import before it is created
+import { beginLoad, endLoad, crashedLoad, markSafe, isSafe, clearSafe } from './load-guard.js';
+import { findOutliers, formatLength } from './outliers.js';   // patches the path tracer's background lookup – import before it is created
 import { ViewModeBar } from './view-mode.js';
 import { SetupMenu } from './setup-menu.js';
 import { buildAbout } from './about.js';
@@ -159,7 +160,25 @@ const dof = new DepthOfField(camera);
 // buffer) – for fine tessellations the path tracer's geometry buffers are larger. So request the
 // limits the hardware actually supports.
 const GPU_OPTIONS = { powerPreference: 'high-performance' };
-const adapter = await navigator.gpu?.requestAdapter(GPU_OPTIONS).catch(() => null);
+// After a GPU reset (see renderer.onDeviceLost) Chrome restarts its GPU process: for a few seconds requestAdapter()
+// yields nothing and the page fell back to WebGL ("no WebGPU", a second reload was needed). After a reset in this tab
+// wait for the adapter (up to ~10 s); otherwise no waiting (browsers without a usable WebGPU adapter start at once).
+const gpuRecovering = (() => { try { return sessionStorage.getItem('rindr.gpuLost') === '1'; } catch { return false; } })();
+async function acquireAdapter() {
+    if (!navigator.gpu) return null;
+    let a = await navigator.gpu.requestAdapter(GPU_OPTIONS).catch(() => null);
+    for (let i = 0; !a && gpuRecovering && i < 20; i++) {
+        if (i === 0) showStatus(t('gpu.waiting'));
+        await new Promise(r => setTimeout(r, 500));
+        a = await navigator.gpu.requestAdapter(GPU_OPTIONS).catch(() => null);
+    }
+    if (gpuRecovering) hideStatus();
+    return a;
+}
+const adapter = await acquireAdapter();
+// WebGPU present but no adapter: usually the browser withholds the GPU after a reset (until it is restarted
+// completely), otherwise graphics card/driver are not supported – the notice says what to do instead of "unsupported"
+const webgpuBlocked = !!navigator.gpu && !adapter;
 const requiredLimits = adapter ? {
     maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
     maxBufferSize: adapter.limits.maxBufferSize,
@@ -1848,7 +1867,7 @@ function frameObject(object) {
     // clipping planes for the new distance: near matching the object (small parts are not cut), far covering the
     // whole scene from there – previously far stayed at the first model (small STEP part + building added →
     // everything clipped) and near only ever shrank (poor depth precision for large scenes)
-    const sceneBox = new THREE.Box3().setFromObject(slicer.group);
+    const sceneBox = modelBox(slicer.group);
     const reach = sceneBox.isEmpty() ? 0 : flight.toPos.distanceTo(sceneBox.getCenter(new THREE.Vector3())) + sceneBox.getSize(new THREE.Vector3()).length() / 2;
     camera.near = dist * 0.001;
     camera.far = Math.max(dist * 100, reach * 2);
@@ -2662,7 +2681,7 @@ function applyBcfViewpoint(vp, topic) {
         const c = vp.camera;
         const position = ifcToWorld(ref, c.position);
         const direction = ifcToWorld(ref, c.direction, true).normalize();
-        const box = new THREE.Box3().setFromObject(slicer.group);
+        const box = modelBox(slicer.group);
         const center = box.isEmpty() ? position.clone().addScaledVector(direction, 10000) : box.getCenter(new THREE.Vector3());
         let fov = Math.min(Math.max(c.fov ?? 60, 10), 100), eye = position, target;
         if (c.type === 'orthogonal') {
@@ -2881,13 +2900,21 @@ document.addEventListener('fullscreenchange', () => {
     setFullTool(full, t(full ? 'toolbar.exitFullscreen' : 'toolbar.fullscreen'));
     setFullTool.button.innerHTML = full ? ICON_FULL_EXIT : ICON_FULL;
 });
+function showHqUnavailable() {
+    showNotice({ id: 'no-hq', icon: webgpuBlocked ? 'warning' : 'info', title: t('feature.hqUnsupported.title'),
+        message: t(webgpuBlocked ? 'feature.hqUnsupported.blocked' : 'feature.hqUnsupported.message'), timeout: webgpuBlocked ? 0 : 12000 });
+}
+// after a GPU reset the adapter did not come back: say so at once (the user expects HQ)
+if (webgpuBlocked && gpuRecovering) showHqUnavailable();
 function setViewMode(mode) {
-    smoothChange();
-    // the path tracer cannot trace Gaussian splats – they are shown rasterised (that is their final look)
+    // HQ without WebGPU: the dimmed button explains why; already in Default → nothing changes (no fade)
     if (mode === 'hq' && !pathTracing.supported) {
-        showNotice({ id: 'no-hq', icon: 'info', title: t('feature.hqUnsupported.title'), message: t('feature.hqUnsupported.message'), timeout: 12000 });
+        showHqUnavailable();
+        if (viewMode === 'default') return;
         mode = 'default';
     }
+    smoothChange();
+    // the path tracer cannot trace Gaussian splats – they are shown rasterised (that is their final look)
     if (mode === 'hq' && splatMesh) mode = 'default';
     // HQ while playing: pause first (the path tracer shows the paused frame); another mode chosen during
     // playing: no automatic return to HQ
@@ -2909,7 +2936,7 @@ function setViewMode(mode) {
     pathTracing.setEnabled(mode === 'hq');
     if (mode === 'hq') checkPathTracingScene();
     updatePathTracingScene();
-    viewModeBar.set(mode, { disabled: pathTracing.supported && !splatMesh ? [] : ['hq'] });
+    viewModeBar.set(mode, { disabled: splatMesh ? ['hq'] : [], unavailable: pathTracing.supported ? [] : ['hq'] });
     setup.refresh();   // "Active" checkbox in the path tracing folder
     loadRender.force = true;
     // first Basic/Default with these batches: compiles their shader variants → "taking over scene" first
@@ -3029,7 +3056,7 @@ function clearModel() {
         if (toneMappingBeforeSplats !== null && renderer.toneMapping === THREE.NoToneMapping) renderer.toneMapping = toneMappingBeforeSplats;
         toneMappingBeforeSplats = null;
         applySplatUi();
-        viewModeBar.set(viewMode, { disabled: pathTracing.supported ? [] : ['hq'] });   // HQ possible again
+        viewModeBar.set(viewMode, { unavailable: pathTracing.supported ? [] : ['hq'] });   // HQ possible again
     }
     if (!rootGroup) return;
     invalidatePathTracing();
@@ -3144,6 +3171,71 @@ window.addEventListener('pointermove', () => { if (loadRender.active) loadRender
 // --- Load and process the model (STEP: tessellate; glTF/FBX: take over meshes) ---
 // reload = re-tessellate the same STEP model (materials + transforms are kept). The old model stays
 // visible until the new one is done; when opening, the model builds up part by part.
+// What an import could not show completely (main and added models): FBX without animation, MAX objects whose
+// modifier stack we cannot rebuild (left out) or only approximate (Noise: own noise function) – named in a notice
+function importNotices(result, name) {
+    if (result.warnings?.includes('fbxStatic')) showNotice({ id: 'fbx-static', icon: 'info', title: t('memory.fbxStatic.title'), message: t('memory.fbxStatic.message', { name: displayName(name) }) });
+    const skipped = result.maxSkipped;
+    if (skipped?.count) showNotice({
+        id: 'max-skipped', icon: 'info', title: t('import.max.skipped.title', { count: skipped.count }),
+        message: t('import.max.skipped.message', { name: displayName(name), what: [...new Set(skipped.what)].join(', ') }),
+    });
+    const approx = result.maxApprox;
+    if (approx?.count) showNotice({
+        id: 'max-approx', icon: 'info', title: t('import.max.approx.title', { count: approx.count }), timeout: 15000,
+        message: t('import.max.approx.message', { name: displayName(name), what: [...new Set(approx.what)].join(', ') }),
+    });
+}
+// Stray objects of a model (outliers.js: far outside or far larger than the model – helper geometry, export errors):
+// box of the others, and the stray meshes hidden through the Scene Graph (checkbox off, can be shown again).
+function boundsWithoutStray(meshes) {
+    const boxes = meshes.map(m => new THREE.Box3().copy(m.geometry.boundingBox).applyMatrix4(m.matrix));
+    const stray = findOutliers(boxes).outliers;
+    // marked for everything else sized on the model (explode centres, contact shadow, clipping – modelBox)
+    meshes.forEach((m, i) => { if (stray.has(i)) m.userData.stray = true; else delete m.userData.stray; });
+    const box = new THREE.Box3();
+    boxes.forEach((b, i) => { if (!stray.has(i)) box.union(b); });
+    const size = Math.max(0, ...[...stray].map(i => boxes[i].getSize(new THREE.Vector3()).length()));
+    return { box, stray, size };
+}
+// World box of the meshes below object without stray objects (Box3.setFromObject counts them, hidden or not)
+function modelBox(object) {
+    const box = new THREE.Box3();
+    object.updateMatrixWorld(true);
+    object.traverse(c => {
+        if (!c.isMesh || c.userData.stray) return;
+        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+        box.union(new THREE.Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
+    });
+    return box;
+}
+function hideStray(meshes, stray, { name, size }) {
+    const set = new Set([...stray].map(i => meshes[i]));
+    // nodes holding nothing but stray meshes: hidden as nodes; other stray meshes on their own
+    const keys = [];
+    for (const [key, e] of sceneGraph.byKey) {
+        if (e.kind !== 'node' || !e.object) continue;
+        let any = false, all = true;
+        e.object.traverse(o => { if (o.isMesh) { if (set.has(o)) any = true; else all = false; } });
+        if (any && all) keys.push(key);
+    }
+    const covered = m => keys.some(k => { for (let o = m.parent; o; o = o.parent) if (o === sceneGraph.byKey.get(k).object) return true; return false; });
+    const single = [...set].filter(m => !covered(m));
+    single.forEach(m => { m.visible = false; });
+    sceneGraph.setHiddenModel([...sceneGraph.hiddenModel, ...keys]);
+    updateTransformsAfterVisibility();
+    showNotice({
+        id: 'stray', icon: 'info', title: t('outliers.title', { count: set.size }),
+        message: t('outliers.message', { name: displayName(name), size: formatLength(size, getLocale()) }),
+        actions: [{ label: t('outliers.show'), onClick: () => {
+            sceneGraph.setHiddenModel([...sceneGraph.hiddenModel].filter(k => !keys.includes(k)));
+            single.forEach(m => { m.visible = true; });
+            updateTransformsAfterVisibility();
+        } }],
+    });
+}
+const updateTransformsAfterVisibility = () => { pathTracing.updateTransforms(); updateHighlight(); loadRender.dirty = true; };
+
 async function loadModel(reload = false, safe = false) {
     if (model.type === 'splat') {
         // a .ply can also be a plain mesh: then the mesh import
@@ -3190,6 +3282,7 @@ async function loadModel(reload = false, safe = false) {
         let nodeGroups = [];
         const bbox = new THREE.Box3();
         const meshBox = new THREE.Box3();
+        const streamed = [];   // meshes so far (robust camera fit while streaming, without stray objects)
 
         // One group per assembly/part (object tree). Groups have no transformation
         // of their own – the mesh matrices are already absolute.
@@ -3213,6 +3306,7 @@ async function loadModel(reload = false, safe = false) {
             (nodeGroups[m.node] || root).add(mesh);
             mesh.updateMatrixWorld();
             bbox.union(meshBox.copy(geometry.boundingBox).applyMatrix4(mesh.matrix));
+            streamed.push(mesh);
             meshByKey.set(m.key, mesh);
             return mesh;
         };
@@ -3225,10 +3319,11 @@ async function loadModel(reload = false, safe = false) {
             const now = performance.now();
             if (reload || bbox.isEmpty() || now - lastFit < 250) return;
             lastFit = now;
-            const size = bbox.getSize(meshBox.min).length();
+            const fit = boundsWithoutStray(streamed).box;
+            const size = fit.getSize(meshBox.min).length();
             fitShadows(size);
             // first view: default view without animation, then follow smoothly
-            if (streamFit.active) fitCamera(bbox, first ? { animate: false, direction: DEFAULT_VIEW } : {});
+            if (streamFit.active) fitCamera(fit, first ? { animate: false, direction: DEFAULT_VIEW } : {});
             first = false;
         };
 
@@ -3268,6 +3363,7 @@ async function loadModel(reload = false, safe = false) {
                     fading.clear();
                     threeGeometries.length = 0;
                     meshByKey.clear();
+                    streamed.length = 0;
                     bbox.makeEmpty();
                     first = true;
                     quality = coarser;
@@ -3303,6 +3399,10 @@ async function loadModel(reload = false, safe = false) {
             }
         }
         if (bbox.isEmpty()) throw new Error(t('status.noFaces'));
+        // stray objects: out of the bounds (centre, camera, ground, shadows, scene size); hidden after the Scene Graph
+        const stray = boundsWithoutStray(meshList);
+        if (stray.stray.size) { bbox.copy(stray.box); console.warn(`[Load] ${stray.stray.size} stray object(s) left out (up to ${Math.round(stray.size)} mm)`); }
+        const shownMeshes = meshList.filter((_, i) => !stray.stray.has(i));
         // animated glTF/FBX: play bar
         if (result.animation) addAnimation(new ModelAnimation(result.animation, meshList, root), 'main');
 
@@ -3339,7 +3439,7 @@ async function loadModel(reload = false, safe = false) {
         // ground = lowest vertex. Not bbox.min.y: the boxes of rotated meshes (glTF nodes, rotated STEP
         // instances) are rotated local boxes, i.e. larger than the mesh – a glTF car floated 127 mm.
         // Centre and size stay with bbox (scene states/camera positions relate to them).
-        environment.groundY = lowestPoint(meshList, bbox.min.y) - center.y;
+        environment.groundY = lowestPoint(shownMeshes, bbox.min.y) - center.y;
         // floor, dome, ground shadow, light shadows, section: sized for all models
         updateSceneExtent();
 
@@ -3355,6 +3455,7 @@ async function loadModel(reload = false, safe = false) {
         model.missingTextures = missing || [];
         primaryContent = { name: model.name.replace(/\.[^.]+$/, ''), importNodes: nodes, groups: nodeGroups, partCounts, root };
         refreshSceneGraph();
+        if (stray.stray.size && !reload) hideStray(meshList, stray.stray, { name: model.name, size: stray.size });
         finishProgress();
         loadedQuality = settings.meshQuality;
         appliedPartQuality = { ...settings.partQuality };
@@ -3363,7 +3464,7 @@ async function loadModel(reload = false, safe = false) {
             showNotice({ id: 'quality', icon: 'info', title: t('memory.reduced.title'), timeout: 12000,
                 message: t('status.qualityReduced', { triangles: formatCount(q.triangles), from: t(`tessellation.quality.${q.from}`), to: t(`tessellation.quality.${q.to}`) }) });
         }
-        if (result.warnings?.includes('fbxStatic')) showNotice({ id: 'fbx-static', icon: 'info', title: t('memory.fbxStatic.title'), message: t('memory.fbxStatic.message', { name: displayName(model.name) }) });
+        importNotices(result, model.name);
         assetsWindow.refresh();
         if (missing?.length) showStatus(t('status.missingTextures', { files: missing.slice(0, 3).map(u => u.split(/[\\/]/).pop()).join(', ') +
             (missing.length > 3 ? ` (+${missing.length - 3})` : '') }));
@@ -3681,6 +3782,7 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
                 source.main = await res.blob();
             }
             result = await importMeshFile(source, { renderer, materialManager, onStatus: showProgress, bvh: pathTracing.supported, checkSize: confirmLargeModel });
+            importNotices(result, name);
         }
         const { geometries, meshes, nodes } = result;
         const groups = nodes.map(n => { const g = new THREE.Group(); g.name = n.name; if (n.ifc) g.userData.ifc = n.ifc; return g; });
@@ -3708,6 +3810,8 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
             startFade(mesh);
         }
         if (bbox.isEmpty()) throw new Error(t('status.noFaces'));
+        const stray = boundsWithoutStray(meshList);   // stray objects: out of the bounds, hidden (see loadModel)
+        if (stray.stray.size) bbox.copy(stray.box);
         if (result.animation) addAnimation(new ModelAnimation(result.animation, meshList, root), id);
         // the model itself is centred on its own bounding box like the main model (as if loaded alone – its
         // zero point and position fields stay untouched); a placement group around it puts it to the right of
@@ -3731,7 +3835,7 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
             const gap = Math.max(...placed.map(b => { const [lo, hi] = along(b, right); return hi - lo; }), newMax - newMin) * 0.15;
             placement.copy(right).multiplyScalar(oldMax + gap - newMin);
         }
-        placement.y = environment.groundY - (lowestPoint(meshList, bbox.min.y) + root.position.y);   // on the ground
+        placement.y = environment.groundY - (lowestPoint(meshList.filter((_, i) => !stray.stray.has(i)), bbox.min.y) + root.position.y);   // on the ground
         // IFC next to IFC: several files of one project (architecture, structure, MEP) share their coordinates →
         // placed exactly where they belong relative to the first IFC model instead of beside it
         const ref = root.userData.ifcOrigin && ifcReference();
@@ -3749,6 +3853,7 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
             content: { name, importNodes: nodes, groups, partCounts, root, id, warn: (result.missing || []).length } });
         updateSceneExtent();   // floor/dome/shadows for all models
         refreshSceneGraph();
+        if (stray.stray.size) hideStray(meshList, stray.stray, { name, size: stray.size });
         exploder.refresh();   // exploded: the new model explodes too
         invalidatePathTracing();
         updatePathTracingScene();
@@ -4166,6 +4271,48 @@ qualityController.enable(false);
 // fill the setup menu even without a model; open at start with ?debug
 setupGUI();
 if (new URLSearchParams(location.search).has('debug')) requestAnimationFrame(() => setSetupOpen(true));
+// GPU reset (e.g. Windows' watchdog ended a too long GPU job: DXGI_ERROR_DEVICE_HUNG) – the WebGPU device is gone,
+// nothing renders any more: tell, offer a reload; the next start (same tab) path traces more cautiously
+// (half the GPU time per frame)
+try { pathTracing.gpuCautious = sessionStorage.getItem('rindr.gpuLost') === '1'; } catch { /* storage blocked */ }
+// Diagnostics: the path tracer's state every second (budget, dispatch times, sizes …); after a reset the last one is
+// kept and offered at the next start (console + "copy details") – which setting the GPU did not cope with
+const gpuDiagnostics = () => {
+    let triangles = 0;
+    for (const m of currentMeshes || []) if (m.visible) triangles += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+    return {
+        ...pathTracing.diagnostics(), viewMode, triangles, canvas: `${renderer.domElement.width}x${renderer.domElement.height}`,
+        pixelRatio: window.devicePixelRatio, gpu: adapter?.info ? `${adapter.info.vendor} ${adapter.info.architecture} ${adapter.info.description || ''}`.trim() : null,
+        userAgent: navigator.userAgent,
+    };
+};
+let gpuTrail = null;
+setInterval(() => { try { gpuTrail = gpuDiagnostics(); } catch { /* not ready yet */ } }, 1000);
+const threeDeviceLost = renderer.onDeviceLost.bind(renderer);   // marks the renderer as lost (stops rendering)
+renderer.onDeviceLost = info => {
+    threeDeviceLost(info);
+    try {
+        sessionStorage.setItem('rindr.gpuLost', '1');
+        sessionStorage.setItem('rindr.gpuLostInfo', JSON.stringify({ message: info?.message || null, reason: info?.reason || null, at: new Date().toISOString(), before: gpuTrail }));
+    } catch { /* storage blocked */ }
+    showNotice({
+        id: 'gpu-lost', icon: 'warning', title: t('gpu.lost.title'), message: t('gpu.lost.message'),
+        actions: [{ label: t('gpu.lost.reload'), primary: true, onClick: () => location.reload() }],
+    });
+};
+// state before the last GPU reset (see renderer.onDeviceLost): console + copy button
+{
+    let info = null;
+    try { info = JSON.parse(sessionStorage.getItem('rindr.gpuLostInfo') || 'null'); sessionStorage.removeItem('rindr.gpuLostInfo'); } catch { /* storage blocked */ }
+    if (info) {
+        console.warn('[GPU] state before the reset:', JSON.stringify(info));
+        // not "ready again" while the browser still withholds the GPU (the "HQ not available" notice says what to do)
+        if (!webgpuBlocked) showNotice({
+            id: 'gpu-info', icon: 'info', title: t('gpu.recovered.title'), message: t('gpu.recovered.message'),
+            actions: [{ label: t('gpu.recovered.copy'), onClick: () => navigator.clipboard?.writeText(JSON.stringify(info, null, 2)).then(() => flashStatus(t('gpu.recovered.copied'), 2000), () => {}) }],
+        });
+    }
+}
 // the last model load ended the tab (out of memory – load-guard.js): tell, open that model sparingly next time; a
 // ?model= URL is not opened again by itself (it would end the tab again) – the notice offers it
 const crashed = crashedLoad();

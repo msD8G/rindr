@@ -24,6 +24,23 @@
             },
             "estimating": "Estimating model size …"
         },
+        "max": {
+            "notMax": "Not a valid MAX file",
+            "skipped": {
+                "title": {
+                    "one": "One object not shown",
+                    "other": "{count} objects not shown"
+                },
+                "message": "“{name}” contains objects whose shape rindr cannot rebuild ({what}) – they are missing. Convert them to Editable Poly in MAX or export as FBX/glTF to include them."
+            },
+            "approx": {
+                "title": {
+                    "one": "One object approximated",
+                    "other": "{count} objects approximated"
+                },
+                "message": "“{name}”: rindr recomputes the effect of {what} itself – the shape matches roughly, in detail it differs from MAX."
+            }
+        },
         "mesh": {
             "reading": "Reading {name}...",
             "orienting": "Orienting faces...",
@@ -920,7 +937,7 @@
         "notSceneOrMaterials": "{name}: neither a scene nor materials",
         "unsupportedFormat": "Format not supported ({extensions})",
         "dropHint": "Drag a file into the window",
-        "dropFormats": "STEP (.stp/.step) · glTF/GLB · FBX · STL · PLY · BIM (.ifc/.ifczip) · BCF issues (.bcfzip) · Gaussian splats (.ply/.sog)",
+        "dropFormats": "STEP (.stp/.step) · glTF/GLB · FBX · MAX (.max) · STL · PLY · BIM (.ifc/.ifczip) · BCF issues (.bcfzip) · Gaussian splats (.ply/.sog)",
         "qualityReduced": "Large model (≈ {triangles} triangles at “{from}”) – quality automatically reduced to “{to}”",
         "modelTooLarge": "Model too large: ≈ {triangles} triangles at “{quality}” (limit {limit}) – loading cancelled",
         "qualityTooFine": "“{quality}” is too fine for this model (≈ {triangles} triangles, limit {limit}) – quality stays “{previous}”",
@@ -1159,13 +1176,13 @@
     },
     "page": {
         "title": "RINDR – 3D viewer with path tracing in the browser",
-        "description": "Open STEP, glTF, FBX, STL, BIM (IFC, BCF) and Gaussian splats right in the browser – local, no upload, with material library and real-time path tracing.",
+        "description": "Open STEP, glTF, FBX, MAX, STL, BIM (IFC, BCF) and Gaussian splats right in the browser – local, no upload, with material library and real-time path tracing.",
         "ogImageAlt": "RINDR logo (cow head) with the caption “3D viewer in the browser”",
         "loading": "Starting RINDR …",
         "sceneGraph": "Scene Graph",
         "drop": {
             "title": "Drop file here",
-            "hint": "STEP (.stp/.step), glTF/GLB, FBX, STL, PLY, BIM (.ifc/.ifczip), BCF issues (.bcfzip), Gaussian splats (.ply/.sog) – just drop textures and .bin files along with it",
+            "hint": "STEP (.stp/.step), glTF/GLB, FBX, MAX (.max), STL, PLY, BIM (.ifc/.ifczip), BCF issues (.bcfzip), Gaussian splats (.ply/.sog) – just drop textures and .bin files along with it",
             "addHint": "Several models: drop them together or one after another – they appear side by side",
             "replaceTitle": "Replace models",
             "replaceHint": "The loaded models are removed and replaced by the new file",
@@ -1181,7 +1198,7 @@
     },
     "about": {
         "title": "About",
-        "description": "Your Local 3D-File Viewer – STEP, glTF, FBX, STL, BIM (IFC, BCF) and Gaussian splats right in the browser, with real-time path tracing.",
+        "description": "Your Local 3D-File Viewer – STEP, glTF, FBX, MAX, STL, BIM (IFC, BCF) and Gaussian splats right in the browser, with real-time path tracing.",
         "author": "Author",
         "email": "Email",
         "version": "Version",
@@ -1509,7 +1526,30 @@
     "feature": {
         "hqUnsupported": {
             "title": "HQ not available",
-            "message": "Path tracing needs WebGPU. This browser or graphics card does not support it – the view stays in Default."
+            "message": "Path tracing needs WebGPU. This browser or graphics card does not support it – the view stays in Default.",
+            "blocked": "The browser is currently not providing the graphics card for WebGPU – usually after a graphics card reset. Close the browser completely (all windows) and start it again. If it stays like this, graphics card or driver do not support WebGPU (status in Chrome: chrome://gpu). Until then the view stays in Default."
         }
+    },
+    "gpu": {
+        "lost": {
+            "title": "Graphics card was reset",
+            "message": "The graphics card was busy with one task for too long and was reset by the system – rendering has stopped. After reloading, rindr computes in smaller portions.",
+            "reload": "Reload"
+        },
+        "waiting": "Waiting for the graphics card …",
+        "recovered": {
+            "title": "Graphics card ready again",
+            "message": "Before the reload the graphics card was reset. rindr computes in smaller portions for this session. The details help to find the cause.",
+            "copy": "Copy details",
+            "copied": "Details copied to the clipboard"
+        }
+    },
+    "outliers": {
+        "title": {
+            "one": "Stray object hidden",
+            "other": "{count} stray objects hidden"
+        },
+        "message": "“{name}” contains geometry far outside or far larger than the rest of the model (up to {size}) – probably a helper object or an export error. It is hidden and ignored for centring, camera and ground.",
+        "show": "Show"
     }
 }

@@ -31,6 +31,10 @@ Gemessen (RTX 3080, Windows-Chrome, Renderer-Prozess per CDP-Prozess-ID + `taskl
 - **Sehr große Dateien** (abgelegte Datei > halbes Budget): `confirmLargeFile` fragt schon vor dem Einlesen (nur beim Öffnen, nicht beim Neu-Tessellieren). `?model=`-Dateien: Größe erst nach dem Laden bekannt → nur die Dreiecksprüfung.
 - STEP ohne Ausweg (auch „Grob“ über der Grenze): Hinweis „Modell zu groß für dieses Gerät“ (`showLimitError` → Hinweis-Karte statt Statuszeile), automatisch gesenkte Qualität ebenfalls als Hinweis.
 
+## GPU-Zeit (Grafikkarten-Watchdog)
+
+Nicht Speicher, aber gleiches Prinzip: Windows setzt die GPU zurück, wenn ein einzelner Auftrag ~2 s läuft (`DXGI_ERROR_DEVICE_HUNG`, WebGPU-Gerät verloren). Pfade je Auftrag und Auflösung beim Drehen richten sich nach gemessener GPU-Zeit (Zeitstempel), große Kernel laufen in Streifen, Geräteverlust zeigt einen Hinweis mit „Neu laden“ – Details docs/pathtracer.md „GPU-Zeit je Auftrag“.
+
 ## Absturz erkennen (`src/scripts/load-guard.js`)
 
 - Während eines Ladevorgangs (viewer.js `guardedLoad` um `loadModel`/`loadExtraModel` in `runLoad`) steht `rindr.loading` in sessionStorage; entfernt beim Ende des Ladens und bei `pagehide` (Neuladen, Schließen = kein Absturz).
@@ -42,7 +46,7 @@ Gemessen (RTX 3080, Windows-Chrome, Renderer-Prozess per CDP-Prozess-ID + `taskl
 
 - `src/scripts/notice.js` `showNotice({ id, icon, title, message, actions, timeout })`: Karten oben mittig, Panel-Stil (`bg-black/60`, Blur), Symbol (Warnung amber / Info sky), Knöpfe, ✕; gleiche `id` ersetzt.
 - `dialog.js` `choiceDialog({ title, message, icon, facts, buttons })`: mehrere Antworten, Warn-/Info-Symbol im Kopf, Faktenblock (Beschriftung/Wert), Esc/Klick daneben = Knopf mit `cancel`.
-- Weitere Hinweise: „HQ nicht verfügbar“ (kein WebGPU, beim Wählen von HQ), „Ohne Animation geladen“ (großes animiertes FBX über den schlanken Leser).
+- Weitere Hinweise: „HQ nicht verfügbar“ (kein WebGPU, beim Klick auf den gedimmten HQ-Knopf – `ViewModeBar.set({ unavailable })` lässt ihn klickbar, `disabled` nur bei Splats; WebGPU vorhanden, aber kein Adapter = `webgpuBlocked` in viewer.js: Chrome gibt die Grafikkarte nach einem Reset teils bis zum kompletten Browser-Neustart nicht frei (Nutzer, Okt. 2026: nach Neuladen „kein WebGPU“, Chrome-Neustart half) → Text „Browser komplett neu starten … chrome://gpu“, nach einem Reset in diesem Tab gleich beim Start, dann ohne „Grafikkarte wieder bereit“; Test: `requestAdapter` per `evaluateOnNewDocument` auf `null`, Scratchpad `blocked.js`), „Ohne Animation geladen“ (großes animiertes FBX über den schlanken Leser).
 - Texte: `memory.*`, `feature.*` in beiden Sprachdateien.
 
 ## Offen

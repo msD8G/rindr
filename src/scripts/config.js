@@ -53,7 +53,14 @@ export const PATHTRACING = {
 
     // Technical (benchmark with ?bench in the URL)
     megakernel: true,           // megakernel instead of wavefront – ~4× faster on the tested GPU
-    frameBudget: 1_000_000,     // paths per pass (library: 250 000)
+    frameBudget: 1_000_000,     // upper limit of paths per pass (library: 250 000) – the actual budget follows the
+                                // GPU time per frame (pathtracer.js _adapt): starts at startFrameBudget, aims at
+                                // frameTargetMs. Fixed 1 M fitted one GPU at Full HD; at 4K / on slower GPUs single
+                                // dispatches came close to the GPU watchdog (Windows TDR ~2 s → device lost)
+    startFrameBudget: 65_536,   // the very first dispatch runs before any measurement – small, it grows within frames
+    minFrameBudget: 32_768,
+    frameTargetMs: 50,          // GPU time per frame the path tracer aims at (refining and orbiting)
+    firstSampleMs: 250,         // after a restart the first sample is computed in one frame up to about this long
     countInterval: 200,         // ms between two sample counts for the status display (GPU readback)
     asyncCompileMinChars: 32_000,   // compute shaders from this WGSL size are compiled asynchronously (megakernel
                                     // ~110 KB: synchronous ~4 s without shader cache, the page froze meanwhile)

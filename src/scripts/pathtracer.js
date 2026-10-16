@@ -64,7 +64,7 @@ export class PathTracingView {
         this._compiling = 0;            // pipelines being compiled asynchronously
         this._compiled = false;         // a compile finished -> restart (the skipped dispatches counted as samples)
         this._envToken = 0;
-        if (this.supported) this._installAsyncCompile();
+        if (this.supported) { this._installAsyncCompile(); this._installTimestamps(); }
 
         // shader precompilation of the denoiser's albedo/normal pass (_prepareDenoiser); the viewer replaces
         // compileScene with the batch-aware variant and reports changes of the drawn objects via compileKey
@@ -76,6 +76,12 @@ export class PathTracingView {
         this._motionReady = false;      // motion denoiser compiled once for this scene (_prepareMotionDenoiser)
         this._ownCompile = null;        // promise list: compute pipelines created meanwhile compile asynchronously
         this._restarted = false;        // reset with the view kept (HDRI, material, light …): show the first sample at once
+        this._tsPending = false;        // a timestamp read is running (_readTimestamps)
+        this._frameMs = 0;              // GPU time of the last refining frame (≈ one megakernel tile)
+        this._motionScale = 1;          // orbit resolution factor learned from the GPU time (≤ 1)
+        this._motionScaleAt = 0;
+        this.gpuCautious = false;       // the GPU was reset before (device lost): half the frame target
+        this._holdShown = false;        // first sample of a restart incomplete: keep showing the previous image
         this.onRestart = null;          // called then (viewer: soft transition of the picture – the path tracer often
                                         // takes over a change a few frames later, e.g. a new HDRI after its table)
         // soft transition between the images (_fade): rest = share of the non-final image still shown once done
@@ -111,6 +117,7 @@ export class PathTracingView {
         // pipeline not ready yet (async compile running): skip
         backend.compute = (group, node, bindings, pipeline, dispatchSize) => {
             if (backend.get(pipeline).pipeline) compute(group, node, bindings, pipeline, dispatchSize);
+            else this._skips = (this._skips || 0) + 1;   // timing of these frames is meaningless (_readTimestamps)
         };
     }
 
@@ -177,6 +184,7 @@ export class PathTracingView {
         const reset = pt.reset.bind(pt);
         pt.reset = () => {
             reset();
+            this._restarts = (this._restarts || 0) + 1;   // image filter cache (_filter)
             if (this.ready && !this._motion && !this.interacting) {
                 this._restarted = true;
                 this.onRestart?.();
@@ -267,7 +275,7 @@ export class PathTracingView {
                 this.pathTracer.updateMaterials();   // useMegakernel() does not carry over textures
             }
             this.pathTracer.maxBounces = this.bounces;
-            this.pathTracer.frameBudget = PATHTRACING.frameBudget;
+            this.pathTracer.frameBudget = this.gpuCautious ? PATHTRACING.minFrameBudget : PATHTRACING.startFrameBudget;
             this._firstSample = performance.now();
             debugLog(`[Pathtracer] scene set up in ${(this._firstSample - t0).toFixed(0)} ms (main thread)`);
         } finally {
@@ -442,6 +450,7 @@ export class PathTracingView {
         } finally {
             this._tracing = false;
         }
+        this._readTimestamps();
         if (this._compiling) { rasterize(); return true; }
         if (pt.fadeState < 1) rasterize();
 
@@ -452,6 +461,75 @@ export class PathTracingView {
             pt.getSampleCountsAsync();
         }
         return true;
+    }
+
+    // GPU time of the path tracer's dispatches from timestamp queries – compute passes only (render passes untouched):
+    // three.js tracks per pass with trackTimestamp; the queue (onSubmittedWorkDone) measured latency incl. presenting,
+    // not GPU work. Without the 'timestamp-query' feature the budget stays at PATHTRACING.startFrameBudget.
+    _installTimestamps() {
+        const backend = this.renderer.backend;
+        if (!backend?.hasFeature?.('timestamp-query')) return;
+        const init = backend.initTimestampQuery.bind(backend);
+        backend.initTimestampQuery = (type, uid, descriptor) => { if (type === 'compute') init(type, uid, descriptor); };
+        backend.trackTimestamp = true;
+        this._timestamps = true;
+    }
+
+    // longest megakernel dispatch of the frames since the last read → paths per dispatch (refining) or the resolution
+    // (orbiting: one dispatch per frame). Every device: aims at PATHTRACING.frameTargetMs per dispatch – fixed values
+    // fitted one GPU at Full HD; at 4K / on slower GPUs single dispatches came close to the GPU watchdog (Windows TDR
+    // ~2 s: DXGI_ERROR_DEVICE_HUNG, the WebGPU device is lost).
+    _readTimestamps() {
+        if (!this._timestamps || this._tsPending) return;
+        // only frames in which the kernel really traced: while it compiles the dispatches are skipped, a finished image
+        // returns at once – those near-zero times let the budget grow to the maximum before anything was measured
+        const inner = this.pathTracer?._pathTracer;
+        const traced = !this._compiling && !this._compiled && !this._isDone() && !(this.pathTracer.maxSamples > 0 && inner?._completedSamples >= this.pathTracer.maxSamples);
+        // a skipped dispatch since the last read: its pass (empty) is among the queries – drop this read
+        const skips = this._skips || 0, clean = skips === this._lastSkips;
+        this._lastSkips = skips;
+        if (!traced || !clean) { this.renderer.resolveTimestampsAsync('compute').catch(() => {}); return; }   // drop those queries
+        this._tsPending = true;
+        const motion = !!this._motion;
+        this.renderer.resolveTimestampsAsync('compute').then(() => {
+            this._tsPending = false;
+            const pool = this.renderer.backend.timestampQueryPool?.compute;
+            const id = String(this.pathTracer?._pathTracer?.kernel?.kernel?.id ?? '');
+            let ms = 0;
+            for (const [uid, d] of pool?.timestamps ?? []) if (uid.split(':')[2] === id) ms = Math.max(ms, d);
+            if (ms > 0) this._adapt(ms, motion);
+        }, () => { this._tsPending = false; });
+    }
+
+    _adapt(ms, motion) {
+        const pt = this.pathTracer;
+        if (!pt || !this.ready || motion !== !!this._motion) return;
+        const target = PATHTRACING.frameTargetMs * (this.gpuCautious ? 0.5 : 1);
+        if (motion) {
+            this._motionMs = ms;
+            // in steps and at most twice a second – every resolution change reallocates the buffers
+            const now = performance.now();
+            if (now - this._motionScaleAt < 500) return;
+            const want = Math.min(Math.max(this._motionScale * Math.sqrt(target / ms), 0.35), 1);
+            if (Math.abs(want - this._motionScale) < 0.15 && want < 1) return;
+            if (want === this._motionScale) return;
+            this._motionScale = want > 0.95 ? 1 : want;
+            this._motionScaleAt = now;
+            pt.renderScale = Math.min(this.motion.renderScale, this._motion.saved.renderScale) * this._motionScale;
+            return;
+        }
+        this._frameMs = ms;
+        const set = f => { pt.frameBudget = Math.round(Math.min(Math.max(pt.frameBudget * f, PATHTRACING.minFrameBudget), PATHTRACING.frameBudget)); };
+        // tiles cost very differently (empty background ~1 ms, the model many times that): shrink at once on a slow
+        // one, grow only once a whole sample has run – by its most expensive tile
+        if (ms > target) { set(Math.max(target / ms, 0.5)); this._sampleMax = 0; return; }
+        this._sampleMax = Math.max(this._sampleMax || 0, ms);
+        const done = pt._pathTracer?._completedSamples ?? 0;
+        if (done === this._sampleSeen) return;
+        this._sampleSeen = done;
+        const worst = this._sampleMax;
+        this._sampleMax = 0;
+        set(Math.min(target / Math.max(worst, 0.5), worst < target / 3 ? 2 : 1.25));
     }
 
     // The denoiser rasterizes albedo + normals with its own shader variant of every material. Built at denoise
@@ -492,20 +570,26 @@ export class PathTracingView {
             if (!iterations) { this.motionDenoiser.resetHistory(); return texture; }
             const pt = this.pathTracer, camera = pt.camera, s = this._filterState, lens = fisheyeParams();
             const spp = this._motion ? 0 : this._samplesNow();
+            // refining: filter again only once a sample is complete (at 4K a sample takes several frames – filtering
+            // every frame cost ~300 ms GPU per frame); the image chain keeps the last result meanwhile
+            const whole = this._motion ? -1 : Math.floor(spp);
+            if (!this._motion && s.out && s.whole === whole && s.restarts === this._restarts && s.input === texture && s.w === (texture.image?.width ?? texture.width)) return s.out;
             const w = texture.image?.width ?? texture.width, h = texture.image?.height ?? texture.height;
             // guides only when the view or the scene changed (restart = fewer samples: objects, materials, depth of
             // field …); while orbiting every frame
             if (this._motion || spp < s.spp || s.w !== w || s.h !== h || s.k !== lens.k
                 || !s.view.equals(camera.matrixWorld) || !s.proj.equals(camera.projectionMatrix)) {
-                const { kernel, dispatch } = this.guides.update(pt._bvhData, w, h, camera);
-                this.renderer.compute(kernel, dispatch);
+                this.guides.trace(this.renderer, pt._bvhData, w, h, camera);
                 s.view.copy(camera.matrixWorld);
                 s.proj.copy(camera.projectionMatrix);
                 Object.assign(s, { w, h, k: lens.k });
             }
             s.spp = spp;
-            return this.motionDenoiser.render(texture, { guides: this.guides, camera, lens, iterations,
-                temporal: Boolean(this._motion) && this.motion.temporal });
+            s.whole = whole;
+            s.restarts = this._restarts;
+            s.input = texture;
+            return (s.out = this.motionDenoiser.render(texture, { guides: this.guides, camera, lens, iterations,
+                temporal: Boolean(this._motion) && this.motion.temporal }));
         }
         if (mode !== 'kuwahara' && mode !== 'denoise') return texture;
         const radius = this._kuwaharaRadius(texture);
@@ -535,6 +619,12 @@ export class PathTracingView {
         }
         if (!b.ready) { b.rest = 0; return texture; }
         const size = this.renderer.getDrawingBufferSize(new Vector2());
+        // restart whose first sample is still being computed: keep the image shown before (k 0) instead of a half
+        // tiled one; then it fades in as usual
+        if (this._holdShown) {
+            if (!this._firstSampleDone()) return this.imageFade.render(texture, 0, Math.max(size.x, 1), Math.max(size.y, 1));
+            this._holdShown = false;
+        }
         return this.imageFade.render(texture, k, Math.max(size.x, 1), Math.max(size.y, 1));
     }
 
@@ -660,10 +750,11 @@ export class PathTracingView {
 
     // reduced settings for motion (once per motion; changing the resolution reallocates buffers)
     _enterMotion() {
+        this._holdShown = false;   // orbiting shows every frame anew
         if (this._motion) { this._motion.end = 0; return; }
         const pt = this.pathTracer;
         this._motion = { saved: { renderScale: pt.renderScale, bounces: this.bounces, minSamples: pt.minSamples }, end: 0 };
-        pt.renderScale = Math.min(this.motion.renderScale, pt.renderScale);
+        pt.renderScale = Math.min(this.motion.renderScale, pt.renderScale) * this._motionScale;   // learned from the GPU time
         pt.maxBounces = Math.min(this.motion.bounces, this.bounces);
         // glass keeps the bounces of standing still (refractions within this budget are not counted, pt-motion.js)
         PT_MOTION.glassBounces.value = Math.max(this.bounces - pt.maxBounces, 0);
@@ -699,10 +790,22 @@ export class PathTracingView {
         const current = inner.getSize(new Vector2());
         if (current.x !== w || current.y !== h) inner.setSize(w, h);
         inner.lowResMode = false;
-        for (let i = 0; i < 64; i++) {
+        // as many tiles as fit into PATHTRACING.firstSampleMs (tile time measured while refining); the rest follows
+        // in the next frames while the previous image stays (_holdShown, _fade) – all tiles at once took seconds of
+        // GPU time in one frame on large scenes at 4K
+        const tileMs = Math.max(this._frameMs || PATHTRACING.frameTargetMs, 1);
+        const tiles = Math.max(1, Math.floor(PATHTRACING.firstSampleMs / tileMs));
+        for (let i = 0; i < Math.min(tiles, 64); i++) {
             inner.update();
             if (inner._tileProgress === 1) break;
         }
+        this._holdShown = inner._tileProgress < 1;
+    }
+
+    // first sample of the restart complete? (megakernel tile progress)
+    _firstSampleDone() {
+        const inner = this.pathTracer._pathTracer;
+        return !('_tileProgress' in inner) || inner._completedSamples >= 1 || inner._tileProgress === 1;
     }
 
     _isDone() {
@@ -710,6 +813,19 @@ export class PathTracingView {
         if (pt.maxSamples <= 0) return false;
         if (this.denoiseEnabled) return this.denoiser.complete;
         return pt._lastSampleCounts.min >= pt.maxSamples;
+    }
+
+    /** State for diagnostics after a GPU reset (viewer.js keeps the last one): budget, dispatch times, sizes */
+    diagnostics() {
+        const pt = this.pathTracer, size = pt?._pathTracer?.getSize?.(new Vector2());
+        return {
+            phase: this.getStatus().phase, samples: Math.round(this.samples * 10) / 10, motion: !!this._motion,
+            frameBudget: pt?.frameBudget ?? null, lastDispatchMs: Math.round(this._frameMs * 10) / 10,
+            motionDispatchMs: Math.round((this._motionMs || 0) * 10) / 10, motionScale: Math.round(this._motionScale * 100) / 100,
+            traceSize: size ? `${size.x}x${size.y}` : null, renderScale: pt?.renderScale ?? null,
+            filter: this.motion.filter, temporal: this.motion.temporal, bounces: this.bounces,
+            timestamps: !!this._timestamps, cautious: this.gpuCautious,
+        };
     }
 
     // Current state for the status display.

@@ -5,7 +5,8 @@
 // explodes around its own centre (root group marked with userData.modelRoot). Nested parts only get the difference to
 // the nearest exploded ancestor (otherwise doubled). The offset lives in xf.explode (parent space,
 // see transform.js) – separate from the user's translations, not in the undo history.
-// Centres are determined in the collapsed state during preparation (prepare).
+// Centres are determined in the collapsed state during preparation (prepare). Stray objects (userData.stray, see
+// outliers.js) count for no centre: a part made only of them keeps its place.
 import * as THREE from 'three/webgpu';
 import { applyTransform, ensureTransform } from './transform.js';
 
@@ -97,7 +98,7 @@ export class Exploder extends EventTarget {
             _box.makeEmpty();
             g.updateMatrixWorld(true);
             g.traverse(c => {
-                if (!c.isMesh) return;
+                if (!c.isMesh || c.userData.stray) return;   // stray objects (outliers.js) neither move nor shift the centre
                 if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
                 _box.union(new THREE.Box3().copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld));
             });

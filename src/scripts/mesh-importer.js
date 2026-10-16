@@ -3,17 +3,19 @@
 //   nodes      – object tree ({ name, parent }, children after parents)
 //   geometries – own buffers per geometry (positions/normals/uvs/index), BVH + tangents in the worker pool
 //   meshes     – instances with absolute matrix, node and material
-// Units are converted to mm (like STEP): glTF is in metres, FBX in cm × UnitScaleFactor.
+// Units are converted to mm (like STEP): glTF is in metres, FBX in cm × UnitScaleFactor, MAX in its system unit.
 // Materials become separate entries (source 'import') in the MaterialManager, textures are kept.
 import * as THREE from 'three/webgpu';
 import { boxUVs, buildGeometryBVHs, orientTrianglesIsolated, UV_TILE } from './step-importer.js';
 import { isBinaryFbx } from './fbx/fbx-parse.js';
+import { isCompoundFile } from './max/max-parse.js';
+import { creaseCornerNormals } from './crease-normals.js';
 import { IMPORT } from './config.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
 // IFC (BIM) goes the same way but has its own importer (ifc/ifc-importer.js, web-ifc – loaded on demand)
-export const MESH_EXTENSIONS = ['glb', 'gltf', 'fbx', 'stl', 'ifc', 'ifczip'];
+export const MESH_EXTENSIONS = ['glb', 'gltf', 'fbx', 'max', 'stl', 'ifc', 'ifczip'];
 
 // The loaders are loaded only with the first glTF/FBX (~170 KB that a STEP-only session never needs).
 // Draco/Basis decoders: three.js references them itself (new URL(…, import.meta.url)) – Vite ships them
@@ -62,6 +64,13 @@ export async function importMeshFile(source, { renderer, materialManager, onStat
     // file size in JS heap, a large CAD export crashed the tab); animated/skinned files below
     // IMPORT.fbxLoaderMaxBytes still go to FBXLoader (it reads animation, skinning, blend shapes)
     let buffer = null;
+    // MAX: own reader in a worker (max/max-parse.js)
+    if (ext === 'max') {
+        const data = await source.main.arrayBuffer();
+        if (!isCompoundFile(data)) throw new Error(t('import.max.notMax'));
+        const lean = await readMaxLean(data, { onStatus });
+        ({ result, missing } = await convertMax(lean, source, materialManager));
+    }
     if (ext === 'fbx') {
         buffer = await source.main.arrayBuffer();
         // ?fbxLoader (testing): always three.js' FBXLoader – comparison with the lean reader
@@ -558,6 +567,165 @@ async function convertLeanFbx({ scene, geometries: parts }, source, materialMana
     }
 }
 
+// --- MAX (max/max-parse.js in a worker) ---
+
+function readMaxLean(buffer, { onStatus }) {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('./max/max-worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+            if (data.type === 'progress') { onStatus(t('import.mesh.buildingGeometries'), data.done / data.total); return; }
+            worker.terminate();
+            if (data.type === 'error') reject(new Error(data.message));
+            else resolve({ scene: data.scene, geometries: data.geometries });
+        };
+        worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'MAX worker failed')); };
+        worker.postMessage({ buffer }, [buffer]);
+    });
+}
+
+// MAX Euler orders (XYZ = about X first, XZY, YZX, YXZ, ZXY, ZYX) → three.js orders (intrinsic, reversed)
+const MAX_EULER = ['ZYX', 'YZX', 'XZY', 'ZXY', 'YXZ', 'XYZ'];
+const maxQuaternion = r => {
+    if (r.euler) return new THREE.Quaternion().setFromEuler(new THREE.Euler(...r.euler, MAX_EULER[r.order] || 'ZYX'));
+    if (r.list) return r.list.reduce((q, x) => maxQuaternion(x).multiply(q), new THREE.Quaternion());   // first applied first
+    return new THREE.Quaternion(...r.quat);
+};
+// translation · rotation · scale along the scale axis (axis · S · axis⁻¹)
+function maxMatrix(position, quaternion, scale, axis) {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(...position), quaternion, new THREE.Vector3(1, 1, 1));
+    const a = new THREE.Quaternion(...axis);
+    const s = new THREE.Matrix4().makeRotationFromQuaternion(a).multiply(new THREE.Matrix4().makeScale(...scale))
+        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(a.clone().invert()));
+    return m.multiply(s);
+}
+
+/** .max scene → { nodes, geometries, meshes } like convert(); Physical Materials with their values, others by colour */
+async function convertMax({ scene, geometries: parts }, source, materialManager) {
+    const scale = scene.unitMm;
+    const toMm = new THREE.Matrix4().makeScale(scale, scale, scale);
+    const { manager, missing, idle, release } = createResolver(source);
+    try {
+        // textures by file name (MAX stores absolute paths of the authoring machine – resolved against the supplied
+        // files / next to the model)
+        const loader = new THREE.TextureLoader(manager);
+        const textures = new Map();
+        // loaded = only textures whose image arrived (after idle(); a missing one keeps the material's colour)
+        let loaded = false;
+        const texture = (i, color) => {
+            if (i == null || i < 0 || !scene.textures[i]) return null;
+            const key = `${i}/${color}`;
+            if (loaded) { const tex = textures.get(key); return tex && hasImage(tex) ? tex : null; }
+            if (!textures.has(key)) {
+                const tex = loader.load(scene.textures[i].file.replace(/\\/g, '/'));
+                tex.name = scene.textures[i].file.split(/[\\/]/).pop();
+                tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+                if (color) tex.colorSpace = THREE.SRGBColorSpace;
+                textures.set(key, tex);
+            }
+            return textures.get(key);
+        };
+        const srgb = c => THREE.ColorManagement.colorSpaceToWorking(new THREE.Color().fromArray(c), THREE.SRGBColorSpace);
+        const built = new Map();
+        const threeMaterial = i => {
+            const m = scene.materials[i];
+            if (!m || m.kind === 'multi') return null;
+            if (built.has(i)) return built.get(i);
+            let mat;
+            if (m.kind === 'physical') {
+                const params = {
+                    color: m.color ? srgb(m.color.map(v => v * (m.baseWeight ?? 1))) : new THREE.Color(0.8, 0.8, 0.8),
+                    roughness: Math.min(1, Math.max(0, m.roughnessInverted ? 1 - m.roughness : m.roughness)),
+                    metalness: m.metalness,
+                };
+                if (m.transparency > 0) Object.assign(params, { transmission: m.transparency, ior: m.ior || 1.52, thickness: 1 });
+                if (m.transparency > 0 && m.transColor) params.attenuationColor = srgb(m.transColor);
+                if (m.emission > 0 && m.emitColor) { params.emissive = srgb(m.emitColor); params.emissiveIntensity = m.emission; }
+                if (m.coating > 0) Object.assign(params, { clearcoat: m.coating, clearcoatRoughness: m.coatRoughness });
+                const map = texture(m.map, true), bump = texture(m.bumpMap, false), rough = texture(m.roughnessMap, false);
+                if (map) { params.map = map; params.color = new THREE.Color(1, 1, 1); }   // the map replaces the colour
+                else if (m.map >= 0 && m.preview) params.color = srgb(m.preview);   // map missing: the colour it gave in MAX' preview
+                if (bump) params.bumpMap = bump;
+                if (rough && !m.roughnessInverted) params.roughnessMap = rough;
+                mat = new THREE.MeshPhysicalMaterial(params);
+            } else {
+                // Standard, V-Ray … : the colour of the material preview
+                mat = new THREE.MeshStandardMaterial({ color: m.color ? srgb(m.color) : new THREE.Color(0.7, 0.7, 0.7), roughness: 0.5, metalness: 0 });
+            }
+            mat.name = m.name;
+            built.set(i, mat);
+            return mat;
+        };
+        // material of a face group: Multi/Sub-Object → sub-material by material ID (wraps like MAX)
+        const resolve = (i, id) => {
+            const m = scene.materials[i];
+            if (m?.kind === 'multi') return m.sub.length ? resolve(m.sub[id % m.sub.length], id) : null;
+            return threeMaterial(i);
+        };
+        const wire = new Map();   // no material: the object's wire colour (as in MAX' viewport)
+        const wireMaterial = c => {
+            const hex = new THREE.Color().fromArray(c).getHexString();
+            if (!wire.has(hex)) wire.set(hex, new THREE.MeshStandardMaterial({ name: `#${hex}`, color: srgb(c), roughness: 0.6, metalness: 0 }));
+            return wire.get(hex);
+        };
+        for (const m of scene.materials) if (m.kind === 'physical') { texture(m.map, true); texture(m.bumpMap, false); texture(m.roughnessMap, false); }
+        await idle();
+        loaded = true;
+
+        const materialId = materialIdFactory(materialManager, scale, source.name);
+        // only nodes that show something or hold such nodes (no lights, cameras, empty helpers)
+        const n = scene.nodes.length;
+        const keep = new Uint8Array(n);
+        for (let k = n - 1; k >= 0; k--) {   // children after parents: bottom-up
+            if (scene.nodes[k].geometry >= 0 && parts[scene.nodes[k].geometry]?.length) keep[k] = 1;
+            if (keep[k] && scene.nodes[k].parent >= 0) keep[scene.nodes[k].parent] = 1;
+        }
+        const top = scene.nodes.filter((m, k) => keep[k] && m.parent < 0).length;
+        const nodes = [];
+        const base = top > 1 ? (nodes.push({ name: '', parent: -1 }), 1) : 0;
+        const ours = new Int32Array(n).fill(-1);
+        const up = new THREE.Matrix4().makeRotationX(-Math.PI / 2);   // Z up → Y up
+        const world = [];
+        const geometries = [], meshes = [];
+        const cache = new Map();   // max geometry → our geometry indices (nodes sharing an object = instances)
+        let instance = 0;
+        scene.nodes.forEach((m, k) => {
+            const tr = m.transform;
+            const local = maxMatrix(tr.position, maxQuaternion(tr.rotation), tr.scale, tr.scaleAxis);
+            world[k] = new THREE.Matrix4().multiplyMatrices(m.parent >= 0 ? world[m.parent] : up, local);
+            if (!keep[k]) return;
+            ours[k] = nodes.length;
+            nodes.push({ name: m.name, parent: m.parent >= 0 && ours[m.parent] >= 0 ? ours[m.parent] : (base ? 0 : -1) });
+            if (m.geometry < 0 || !parts[m.geometry]?.length) return;
+            const o = m.offset;
+            const objectMatrix = new THREE.Matrix4().multiplyMatrices(world[k], maxMatrix(o.position, new THREE.Quaternion(...o.quat), o.scale, o.scaleAxis));
+            let gis = cache.get(m.geometry);
+            if (!gis) {
+                const worldScale = objectMatrix.getMaxScaleOnAxis() * scale;
+                gis = parts[m.geometry].map(part => {
+                    const uvs = part.uvs || boxUVs(part.positions, part.normals, UV_TILE / Math.max(worldScale, 1e-12));
+                    geometries.push({ positions: part.positions, normals: part.normals, index: part.index, uvs, name: m.name });
+                    return { gi: geometries.length - 1, material: part.material };
+                });
+                cache.set(m.geometry, gis);
+            }
+            const matrix = new THREE.Matrix4().multiplyMatrices(toMm, objectMatrix).toArray();
+            for (const { gi, material } of gis) {
+                const src = m.material >= 0 ? resolve(m.material, material) : (m.wireColor ? wireMaterial(m.wireColor) : null);
+                meshes.push({ geometry: gi, matrix, materialId: materialId(src), name: m.name, node: ours[k], instance, key: `${instance}/${material}` });
+            }
+            instance++;
+        });
+        const result = { nodes, geometries, meshes, animation: null };
+        const u = scene.unsupported;
+        if (u.nodes || u.objects.length) result.maxSkipped = { count: u.nodes, what: [...u.modifiers, ...u.objects].map(x => x.name) };
+        if (u.approx?.length) result.maxApprox = { count: u.approx.reduce((a, x) => a + x.count, 0), what: u.approx.map(x => x.name) };
+        if (u.controllers.length) console.warn('[Import] MAX: transform controllers not read:', u.controllers);
+        return { result, missing };
+    } finally {
+        release();
+    }
+}
+
 const hasMorphs = mesh => !!mesh.geometry?.morphAttributes?.position?.length && !!mesh.morphTargetDictionary;
 
 const DEFAULT_MATERIAL = new THREE.MeshStandardMaterial({ name: 'Standard', color: 0xb0b0b0, roughness: 0.5 });
@@ -678,76 +846,14 @@ function inBindPose(mesh) {
 }
 
 // Normals for meshes without any: smooth across vertices at the same position (FBX/glTF often have none
-// shared), edges sharper than 30° stay hard – otherwise every triangle was flat (faceted).
-// Each face counts with its corner angle (Thürmer/Wüthrich), so the result does not depend on the
-// triangulation: three's toCreasedNormals averaged unweighted – fans of long thin triangles on flat CAD
-// faces (typical STL) pulled the vertex normals askew → distorted shading.
-const CREASE_DOT = Math.cos(Math.PI / 6);   // 30° like Blender: 60° also smoothed flat faces into neighbouring chamfers (shading gradient)
+// shared), edges sharper than 30° stay hard – otherwise every triangle was flat (faceted). Corner normals from
+// crease-normals.js, corners of our indexed buffer that share a vertex averaged (vertex = index value).
 function computeNormals(positions, index, normals) {
-    const nf = index.length / 3, nv = positions.length / 3;
-    // 1. face normals (unit) and corner angles
-    const fn = new Float64Array(nf * 3), angle = new Float64Array(index.length);
-    const len = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
-    const cornerAngle = (ux, uy, uz, wx, wy, wz) => {
-        const d = len(ux, uy, uz) * len(wx, wy, wz);
-        return d > 0 ? Math.acos(Math.max(-1, Math.min(1, (ux * wx + uy * wy + uz * wz) / d))) : 0;
-    };
-    for (let f = 0; f < nf; f++) {
-        const a = index[f * 3] * 3, b = index[f * 3 + 1] * 3, c = index[f * 3 + 2] * 3;
-        const abx = positions[b] - positions[a], aby = positions[b + 1] - positions[a + 1], abz = positions[b + 2] - positions[a + 2];
-        const acx = positions[c] - positions[a], acy = positions[c + 1] - positions[a + 1], acz = positions[c + 2] - positions[a + 2];
-        const bcx = positions[c] - positions[b], bcy = positions[c + 1] - positions[b + 1], bcz = positions[c + 2] - positions[b + 2];
-        const x = aby * acz - abz * acy, y = abz * acx - abx * acz, z = abx * acy - aby * acx;
-        const l = len(x, y, z);
-        if (l > 0) { fn[f * 3] = x / l; fn[f * 3 + 1] = y / l; fn[f * 3 + 2] = z / l; }   // degenerate: zero, no weight
-        angle[f * 3] = cornerAngle(abx, aby, abz, acx, acy, acz);
-        angle[f * 3 + 1] = cornerAngle(-abx, -aby, -abz, bcx, bcy, bcz);
-        angle[f * 3 + 2] = Math.max(0, Math.PI - angle[f * 3] - angle[f * 3 + 1]);
-    }
-    // 2. weld vertices at the same position (grid relative to the model size, unit independent)
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i < positions.length; i++) { const v = positions[i]; if (v < min) min = v; if (v > max) max = v; }
-    const inv = 1 / Math.max((max - min) * 1e-7, 1e-12);
-    const weld = new Int32Array(nv), q = new Int32Array(nv * 3);
-    let size = 1;
-    while (size < nv * 2) size <<= 1;
-    const table = new Int32Array(size);   // open addressing, slot = welded id + 1, 0 = empty
-    let count = 0;
-    for (let v = 0; v < nv; v++) {
-        const x = Math.round((positions[v * 3] - min) * inv), y = Math.round((positions[v * 3 + 1] - min) * inv), z = Math.round((positions[v * 3 + 2] - min) * inv);
-        let slot = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) & (size - 1);
-        for (;;) {
-            const e = table[slot];
-            if (e === 0) { q[count * 3] = x; q[count * 3 + 1] = y; q[count * 3 + 2] = z; table[slot] = ++count; weld[v] = count - 1; break; }
-            if (q[(e - 1) * 3] === x && q[(e - 1) * 3 + 1] === y && q[(e - 1) * 3 + 2] === z) { weld[v] = e - 1; break; }
-            slot = (slot + 1) & (size - 1);
-        }
-    }
-    // 3. corners around each welded position (CSR)
-    const start = new Int32Array(count + 1);
-    for (let i = 0; i < index.length; i++) start[weld[index[i]] + 1]++;
-    for (let k = 0; k < count; k++) start[k + 1] += start[k];
-    const cursor = start.slice(0, count), around = new Int32Array(index.length);
-    for (let i = 0; i < index.length; i++) around[cursor[weld[index[i]]]++] = i;
-    // 4. per corner: angle-weighted sum of the faces around it within the crease angle; corners of our
-    //    indexed buffer that share a vertex are averaged (vertex = index value)
+    const corners = creaseCornerNormals(positions, index);
     normals.fill(0);
     for (let i = 0; i < index.length; i++) {
-        const f3 = (i - i % 3);
-        const nx = fn[f3], ny = fn[f3 + 1], nz = fn[f3 + 2];
-        let sx = 0, sy = 0, sz = 0;
-        const id = weld[index[i]];
-        for (let k = start[id]; k < start[id + 1]; k++) {
-            const c = around[k], o = c - c % 3;
-            if (nx * fn[o] + ny * fn[o + 1] + nz * fn[o + 2] > CREASE_DOT) {
-                const w = angle[c];
-                sx += fn[o] * w; sy += fn[o + 1] * w; sz += fn[o + 2] * w;
-            }
-        }
-        const l = len(sx, sy, sz);
-        if (l > 0) { sx /= l; sy /= l; sz /= l; } else { sx = nx; sy = ny; sz = nz; }
         const v = index[i] * 3;
-        normals[v] += sx; normals[v + 1] += sy; normals[v + 2] += sz;
+        normals[v] += corners[i * 3]; normals[v + 1] += corners[i * 3 + 1]; normals[v + 2] += corners[i * 3 + 2];
     }
     for (let v = 0; v < normals.length; v += 3) {
         const l = Math.hypot(normals[v], normals[v + 1], normals[v + 2]) || 1;
