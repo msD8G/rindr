@@ -10,6 +10,8 @@
 //                                              mask(value): shown instead of the value, field empties on focus)
 //   s.button(label, onClick), s.heading(text), s.hint(text)
 //   control.refresh() reads the value again, control.enable(bool); menu.refresh() refreshes all.
+//   menu.onChange: called right before a switch, dropdown or text field applies a value (viewer: soft transition
+//   of the picture, screen-fade.js) – not for sliders, they apply live while dragging.
 
 import { t } from './i18n.js';
 
@@ -134,7 +136,7 @@ class Section {
             sw.classList.toggle('bg-white/20', !on);
             knob.classList.toggle('translate-x-3', on);
         };
-        sw.addEventListener('click', () => { set(!get()); refresh(); });
+        sw.addEventListener('click', () => { this.menu.onChange?.(); set(!get()); refresh(); });
         return this._control(row, refresh, [sw]);
     }
 
@@ -172,7 +174,7 @@ class Section {
         }
         const row = this._row(label, select);
         const refresh = () => { select.value = get(); };
-        select.addEventListener('change', () => set(select.value));
+        select.addEventListener('change', () => { this.menu.onChange?.(); set(select.value); });
         return this._control(row, refresh, [select]);
     }
 
@@ -191,7 +193,7 @@ class Section {
         });
         input.addEventListener('blur', () => {
             const v = input.value.trim();
-            if (mask ? v && v !== shown() : v !== get()) set(v);
+            if (mask ? v && v !== shown() : v !== get()) { this.menu.onChange?.(); set(v); }
             input.value = shown();
         });
         return this._control(row, refresh, [input]);

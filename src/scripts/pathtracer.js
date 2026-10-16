@@ -11,11 +11,14 @@
 // the settings (samples, resolution, …) are only stored.
 // Responsiveness: large kernels (megakernel) are compiled asynchronously (_installAsyncCompile), the
 // environment's importance-sampling table is computed in a worker (env-cdf.js).
-import { Vector2 } from 'three/webgpu';
+import { Matrix4, Vector2 } from 'three/webgpu';
 import { PATHTRACING } from './config.js';   // defaults (samples, resolution, bounces, …)
 import { isEnvCdfReady, prepareEnvCdf } from './env-cdf.js';
 import { compileAsync } from './shader-compile.js';
 import { KuwaharaFilter } from './kuwahara.js';
+import { MotionDenoiser } from './motion-denoise.js';
+import { ImageFade } from './image-fade.js';
+import { fisheyeParams } from './fisheye.js';
 import { PT_MOTION } from './pt-motion.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
@@ -69,6 +72,14 @@ export class PathTracingView {
         this.compileKey = () => '';
         this._denoisePrep = null;       // { key, done }
         this._materialsVersion = 0;
+        this._filterState = { spp: 0, view: new Matrix4(), proj: new Matrix4(), w: 0, h: 0, k: 1 };
+        this._motionReady = false;      // motion denoiser compiled once for this scene (_prepareMotionDenoiser)
+        this._ownCompile = null;        // promise list: compute pipelines created meanwhile compile asynchronously
+        this._restarted = false;        // reset with the view kept (HDRI, material, light …): show the first sample at once
+        this.onRestart = null;          // called then (viewer: soft transition of the picture – the path tracer often
+                                        // takes over a change a few frames later, e.g. a new HDRI after its table)
+        // soft transition between the images (_fade): rest = share of the non-final image still shown once done
+        this._blend = { last: 0, view: new Matrix4(), proj: new Matrix4(), rest: 0, prepared: false };
     }
 
     // Large compute shaders (megakernel ~110 KB WGSL) via createComputePipelineAsync. three.js creates compute
@@ -81,6 +92,8 @@ export class PathTracingView {
         const create = backend.createComputePipeline.bind(backend);
         const compute = backend.compute.bind(backend);
         backend.createComputePipeline = (pipeline, bindings, promises = null) => {
+            // own kernels (denoiser guides, _prepareMotionDenoiser): asynchronously, the caller waits for the list
+            if (this._ownCompile && !promises) return create(pipeline, bindings, this._ownCompile);
             if (promises || !this._tracing || pipeline.computeProgram.code.length < PATHTRACING.asyncCompileMinChars) {
                 return create(pipeline, bindings, promises);
             }
@@ -110,13 +123,13 @@ export class PathTracingView {
     /** Load and create the path tracer (once; later calls return the same promise). false = not supported */
     load() {
         if (!this.supported) return Promise.resolve(false);
-        this._loading ??= Promise.all([import('three-gpu-pathtracer/webgpu'), import('oidn-web'), import('@pmndrs/upscaler')])
-            .then(([ptLib, oidn, upscalerLib]) => { this._create(ptLib, oidn, upscalerLib); return true; })
+        this._loading ??= Promise.all([import('three-gpu-pathtracer/webgpu'), import('oidn-web'), import('@pmndrs/upscaler'), import('./pt-guides.js')])
+            .then(([ptLib, oidn, upscalerLib, guidesLib]) => { this._create(ptLib, oidn, upscalerLib, guidesLib); return true; })
             .catch(err => { this._loading = null; throw err; });
         return this._loading;
     }
 
-    _create({ WebGPUPathTracer, OIDNDenoiser, FSRUpscaler }, { initUNetFromURL }, { Upscaler }) {
+    _create({ WebGPUPathTracer, OIDNDenoiser, FSRUpscaler }, { initUNetFromURL }, { Upscaler }, { GuideKernel }) {
         const t0 = performance.now();
         const s = this._settings;
         this._initUNetFromURL = initUNetFromURL;
@@ -138,16 +151,19 @@ export class PathTracingView {
         this.upscaler = new FSRUpscaler({ Upscaler });
         this.upscaler.sharpness = s.sharpness;
         this.kuwahara = new KuwaharaFilter(this.renderer, PATHTRACING.kuwahara);
-        // the path tracer's "upscaler" slot: Kuwahara (while orbiting and while the image refines, see
-        // _kuwaharaRadius), then FSR if switched on
+        this.motionDenoiser = new MotionDenoiser(this.renderer, PATHTRACING.denoiseMotion);
+        this.guides = new GuideKernel(PATHTRACING.denoiseMotion);   // its guide buffers, traced like the image
+        this.imageFade = new ImageFade(this.renderer);
+        // the path tracer's "upscaler" slot: image filter while orbiting and while the image refines (Kuwahara or
+        // denoiser, see _filter), then FSR if switched on, then the soft transition to the shown image (_fade)
         const fsr = this.upscaler;
         this._imageChain = {
             init: renderer => fsr.init(renderer),
-            dispose: () => { fsr.dispose?.(); this.kuwahara.dispose(); },
+            dispose: () => { fsr.dispose?.(); this.kuwahara.dispose(); this.motionDenoiser.dispose(); this.guides.dispose(); this.imageFade.dispose(); },
             upscale: (texture, camera) => {
-                const radius = this._kuwaharaRadius(texture);
-                if (radius > 0) texture = this.kuwahara.render(texture, radius);
-                return this.upscaleEnabled ? fsr.upscale(texture, camera) : texture;
+                texture = this._filter(texture);
+                if (this.upscaleEnabled) texture = fsr.upscale(texture, camera);
+                return this._fade(texture, camera);
             },
         };
         // the denoise waits until the shaders of the albedo/normal pass are compiled (_prepareDenoiser)
@@ -155,6 +171,17 @@ export class PathTracingView {
         this.denoiser.update = target => (this._denoisePrep && !this._denoisePrep.done ? this.denoiser.texture : denoiseUpdate(target));
         pt.setDenoiser(this.denoiseEnabled ? this.denoiser : null);
         pt.setUpscaler(this._imageChain);
+        // restart while the image is shown (environment, materials, lights, objects …): the raster image used to cover
+        // the path tracer until the first sample was complete – a jump to the raster view and back. Instead the first
+        // sample is computed at once (_renderFirstSample) and fades in over the previous image (_fade).
+        const reset = pt.reset.bind(pt);
+        pt.reset = () => {
+            reset();
+            if (this.ready && !this._motion && !this.interacting) {
+                this._restarted = true;
+                this.onRestart?.();
+            }
+        };
         debugLog(`[Pathtracer] created in ${(performance.now() - t0).toFixed(0)} ms`);
     }
 
@@ -232,6 +259,7 @@ export class PathTracingView {
             await new Promise(resolve => requestAnimationFrame(resolve));
             const t0 = performance.now();
             this.pathTracer.setScene(scene, camera);
+            this._motionReady = false;   // new scene data: Kuwahara until the denoiser's shaders are compiled for it
             // switch only now: useMegakernel() needs the camera and BVH data of the scene
             if (PATHTRACING.megakernel && !this._megakernel) {
                 this._megakernel = true;
@@ -407,6 +435,7 @@ export class PathTracingView {
             this._firstSample ||= performance.now();
         }
         this._prepareDenoiser();
+        this._prepareMotionDenoiser();
         this._tracing = true;
         try {
             this._renderPathTraced(pt);
@@ -453,19 +482,128 @@ export class PathTracingView {
         });
     }
 
+    // Image filter of the path traced image while orbiting and while it refines (motion.filter). The denoiser's
+    // guides are traced with the path tracer's camera and scene (pt-guides.js) – fisheye, depth of field, mirrors,
+    // glass, materials. Kuwahara only until its shaders are compiled for a new scene (_prepareMotionDenoiser).
+    _filter(texture) {
+        const mode = this.motion.filter;
+        if (mode === 'denoise' && this._motionReady) {
+            const iterations = this._denoiseIterations(texture);
+            if (!iterations) { this.motionDenoiser.resetHistory(); return texture; }
+            const pt = this.pathTracer, camera = pt.camera, s = this._filterState, lens = fisheyeParams();
+            const spp = this._motion ? 0 : this._samplesNow();
+            const w = texture.image?.width ?? texture.width, h = texture.image?.height ?? texture.height;
+            // guides only when the view or the scene changed (restart = fewer samples: objects, materials, depth of
+            // field …); while orbiting every frame
+            if (this._motion || spp < s.spp || s.w !== w || s.h !== h || s.k !== lens.k
+                || !s.view.equals(camera.matrixWorld) || !s.proj.equals(camera.projectionMatrix)) {
+                const { kernel, dispatch } = this.guides.update(pt._bvhData, w, h, camera);
+                this.renderer.compute(kernel, dispatch);
+                s.view.copy(camera.matrixWorld);
+                s.proj.copy(camera.projectionMatrix);
+                Object.assign(s, { w, h, k: lens.k });
+            }
+            s.spp = spp;
+            return this.motionDenoiser.render(texture, { guides: this.guides, camera, lens, iterations,
+                temporal: Boolean(this._motion) && this.motion.temporal });
+        }
+        if (mode !== 'kuwahara' && mode !== 'denoise') return texture;
+        const radius = this._kuwaharaRadius(texture);
+        return radius > 0 ? this.kuwahara.render(texture, radius) : texture;
+    }
+
+    // Soft transition (image-fade.js, user's wish: no jumps between the orbit preview and the sample stages): the
+    // shown image moves towards the new one with time constant PATHTRACING.fadeMs. Cut (show at once): while
+    // orbiting, after a new view (camera changed, e.g. fly-to – no cross-fade between two views) and after a
+    // pause of the path tracer (raster preview while editing – the old image shows the old state).
+    _fade(texture, camera) {
+        const b = this._blend, tau = PATHTRACING.fadeMs;
+        if (!(tau > 0)) { b.rest = 0; return texture; }
+        const now = performance.now(), dt = now - b.last;
+        const cut = Boolean(this._motion) || dt > 100 || !b.view.equals(camera.matrixWorld) || !b.proj.equals(camera.projectionMatrix);
+        const k = cut ? 1 : 1 - Math.exp(-dt / tau);
+        b.last = now;
+        b.view.copy(camera.matrixWorld);
+        b.proj.copy(camera.projectionMatrix);
+        // the final image is reported done only once the earlier ones have faded out (export/AI take the next frame)
+        b.rest = this._isDone() ? b.rest * (1 - k) : 1;
+        if (!b.prepared) {   // first use: compile asynchronously, show the image as it is meanwhile
+            b.prepared = true;
+            b.ready = false;
+            this.imageFade.compile(texture).catch(err => console.warn('[Pathtracer] fade precompile failed:', err))
+                .finally(() => { b.ready = true; });
+        }
+        if (!b.ready) { b.rest = 0; return texture; }
+        const size = this.renderer.getDrawingBufferSize(new Vector2());
+        return this.imageFade.render(texture, k, Math.max(size.x, 1), Math.max(size.y, 1));
+    }
+
+    _fadeSettled() {
+        return this._blend.rest < 1 / 256;
+    }
+
+    // samples per pixel so far – from the megakernel's tile progress (CPU, no readback)
+    _samplesNow() {
+        const pt = this.pathTracer, inner = pt._pathTracer;
+        return Math.max(1, '_completedSamples' in inner ? inner._completedSamples + inner._tileProgress : pt._lastSampleCounts.avg);
+    }
+
+    // à-trous passes of the denoiser: all while orbiting, afterwards fewer with the samples (the noise halves every
+    // 4 samples, one pass less per doubling) but at least 2 until the final image (1 left visible grain); 0 = none
+    _denoiseIterations(texture) {
+        const n = PATHTRACING.denoiseMotion.iterations;
+        if (this._motion) return n;
+        if (texture === this.denoiser.texture || this._isDone()) return 0;   // final image
+        return Math.min(Math.max(Math.ceil(n - Math.log2(this._samplesNow())), 2), n);
+    }
+
+    // The motion denoiser's shaders (guide kernel, full-screen passes) – compiled asynchronously while the image
+    // accumulates; built on the first orbit they blocked the main thread and the GPU process. Once per scene data
+    // (pt._bvhData, new with setScene): until then the image filter is Kuwahara, afterwards the denoiser stays on –
+    // the filter must not change by itself (user). Material/environment changes need no new kernel (the scene
+    // data's buffers are updated in place; with them in the key the filter fell back to Kuwahara on each HDRI
+    // change).
+    _prepareMotionDenoiser() {
+        if (this.motion.filter !== 'denoise') return;
+        const pt = this.pathTracer, key = pt._bvhData;   // guide kernel per scene data
+        if (!key || this._motionPrep?.key === key) return;
+        const prep = this._motionPrep = { key, done: false };
+        const t0 = performance.now();
+        let job = null;
+        try {
+            const source = pt._pathTracer.outputTarget;
+            const w = Math.max(source.image?.width ?? source.width ?? 1, 1), h = Math.max(source.image?.height ?? source.height ?? 1, 1);
+            // the guide kernel: its first dispatch creates the pipeline – asynchronously (_ownCompile), skipped meanwhile
+            const own = this._ownCompile = [];
+            const { kernel, dispatch } = this.guides.update(key, w, h, pt.camera);
+            this.renderer.compute(kernel, dispatch);
+            this._ownCompile = null;
+            this._filterState.w = 0;   // trace the guides again at the first use
+            job = Promise.all([Promise.all(own), this.motionDenoiser.compile(source, this.guides)]);
+        } catch (err) {
+            console.warn('[Pathtracer] motion denoiser precompile failed:', err);
+        } finally {
+            this._ownCompile = null;
+        }
+        Promise.resolve(job).catch(err => console.warn('[Pathtracer] motion denoiser precompile failed:', err)).finally(() => {
+            prep.done = true;
+            if (this._motionPrep === prep) this._motionReady = true;
+            debugLog(`[Pathtracer] motion denoiser shaders compiled in ${(performance.now() - t0).toFixed(0)} ms`);
+        });
+    }
+
     // Kuwahara brush radius in pixels of the path traced image (0 = no filter). While orbiting the configured size
     // on the reduced image. Afterwards the same size on screen at first, shrinking with the samples (noise ∝
     // 1/√samples, towards maxSamples another factor down to ½) but at least 1 px until the final image (denoised,
     // or maxSamples without denoiser) – the painted image gets finer and finer up to the final one instead of
-    // showing the noisy accumulation (user's wish). Samples from the megakernel's tile progress (CPU, no readback).
+    // showing the noisy accumulation (user's wish).
     _kuwaharaRadius(texture) {
-        if (!this.motion.kuwahara) return 0;
         const base = PATHTRACING.kuwahara.radius;
         if (this._motion) return base;
-        const pt = this.pathTracer, inner = pt._pathTracer;
+        const pt = this.pathTracer;
         if (texture === this.denoiser.texture || this._isDone()) return 0;   // final image
         const scale = pt.renderScale / Math.min(this.motion.renderScale, pt.renderScale);
-        const spp = Math.max(1, '_completedSamples' in inner ? inner._completedSamples + inner._tileProgress : pt._lastSampleCounts.avg);
+        const spp = this._samplesNow();
         const radius = base * scale / Math.sqrt(spp);
         // endless accumulation (maxSamples 0): fades out on its own
         if (pt.maxSamples <= 0) return radius >= 0.75 ? radius : 0;
@@ -488,7 +626,17 @@ export class PathTracingView {
                 pt._pathTracer.setBackgroundParams(scene.backgroundIntensity, scene.backgroundRotation, scene.backgroundBlurriness);
             }
             pt.updateCamera();
-            if (this._fullFirst) this._renderFirstSample();
+            if (this._fullFirst && pt.material?.initialized) { this._renderFirstSample(); this._restarted = false; }
+        }
+        // (not before the library's first renderSample(): it initialises the material the kernel is built from)
+        if (this._restarted && !this._motion && pt.material?.initialized) {
+            this._restarted = false;
+            if (!this._fullFirst) {
+                this._fullFirst = true;
+                this._fullFirstMin = pt.minSamples;
+                pt.minSamples = 0;
+            }
+            this._renderFirstSample();
         }
         pt.renderSample();
         if (this._fullFirst) {   // first full-quality image is on screen: normal gate again
@@ -590,7 +738,11 @@ export class PathTracingView {
         status.samples = counts.avg;
         status.progress = pt.maxSamples > 0 ? Math.min(counts.avg / pt.maxSamples, 1) : 0;
 
-        if (this._isDone()) return { ...status, phase: 'done', progress: 1 };
+        if (this._isDone()) {
+            if (this._fadeSettled()) return { ...status, phase: 'done', progress: 1 };
+            // final image still fading in (_fade)
+            return { ...status, phase: this.denoiseEnabled ? 'denoising' : 'rendering', progress: 1 };
+        }
         // all samples there, the denoiser's shaders are still compiling
         if (this.denoiseEnabled && this._denoisePrep && !this._denoisePrep.done && counts.min >= pt.maxSamples) {
             return { ...status, phase: 'denoise-loading', progress: 0 };

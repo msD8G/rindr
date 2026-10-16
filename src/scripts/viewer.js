@@ -2,12 +2,13 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './view-cube.js';
 import { ContourPass } from './contour.js';
+import { ScreenFade } from './screen-fade.js';
 import { HdriEditor } from './hdri/hdri-editor.js';
 import { HdriRenderService } from './hdri/hdri-service.js';
 import { studioPreset, cloneHdri } from './hdri/hdri-model.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { TESS_PRESETS, normalizeQuality, abortStepImport, buildBVHIsolated, fetchStepFile, readStepFile, releaseStepFile, tessellateStep, ImportLimitError } from './step-importer.js';
-import { IMPORT, KI, SPLATS, RASTER, SCENE } from './config.js';
+import { IMPORT, KI, SPLATS, RASTER, SCENE, TRANSITION } from './config.js';
 import { importMeshFile, MissingFilesError, MESH_EXTENSIONS } from './mesh-importer.js';
 import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
@@ -532,6 +533,9 @@ const environment = {
         } finally {
             if (id === this._loadId && !loading) hideProgress();
         }
+        // soft transition now that the new HDRI is there (the change is recorded at the selection – loading and
+        // decoding take ~1 s, the transition started then was long over and the HDRI jumped in)
+        smoothChange();
         const previous = this.texture;
         this.texture = texture;
         ground.setEnvironment(texture);
@@ -631,6 +635,16 @@ const contours = new ContourPass(renderer, scene, camera, {
     hide: () => [ground.mesh],
     depthScale: () => camera.position.distanceTo(controls.target),
 });
+// Soft transitions of the whole picture (screen-fade.js) on every change: undo steps (= every recorded change –
+// properties, environment/HDRI, lens effects, depth of field, materials, visibility …), switches/dropdowns of the
+// setup menu, view mode. Not while dragging (sliders, gizmo, orbiting apply live).
+const screenFade = new ScreenFade(renderer, TRANSITION);
+const smoothChange = () => { if (!pathTracing._dragging && !pathTracing.interacting) screenFade.begin(); };
+pathTracing.onRestart = () => { if (viewMode === 'hq') smoothChange(); };
+for (const name of ['record', 'undo', 'redo']) {
+    const f = history[name].bind(history);
+    history[name] = (...args) => { smoothChange(); return f(...args); };
+}
 // fisheye in the raster views (cube map like drei); picking and gizmo get fisheye rays
 const rasterFisheye = new RasterFisheye();
 highlighter.fisheye = rasterFisheye;
@@ -1980,6 +1994,7 @@ let currentNodeGroups = [];   // groups per import node
 // Setup menu (gear in the bar, setSetupOpen): path tracing + tessellation
 const setupMenu = document.getElementById('setup-menu');
 const setup = new SetupMenu(setupMenu, t('setup.title'), { onClose: () => setSetupOpen(false) });   // sections left, options right
+setup.onChange = smoothChange;
 const settings = {
     meshQuality: 'medium',
     partQuality: {},   // quality per part (STEP node index -> level), also applies to child nodes
@@ -2802,6 +2817,7 @@ document.addEventListener('fullscreenchange', () => {
     setFullTool.button.innerHTML = full ? ICON_FULL_EXIT : ICON_FULL;
 });
 function setViewMode(mode) {
+    smoothChange();
     // the path tracer cannot trace Gaussian splats – they are shown rasterised (that is their final look)
     if (mode === 'hq' && (!pathTracing.supported || splatMesh)) mode = 'default';
     // HQ while playing: pause first (the path tracer shows the paused frame); another mode chosen during
@@ -3460,8 +3476,16 @@ function setupGUI() {
         motion.range(t('setup.resolution'), () => pathTracing.motion.renderScale, v => { pathTracing.motion.renderScale = v; }, 0.1, 1, 0.05);
         motion.range(t('setup.bounces'), () => pathTracing.motion.bounces, v => { pathTracing.motion.bounces = v; }, 1, 8, 1);
         motion.range(t('setup.samplesPerFrame'), () => pathTracing.motion.samples, v => { pathTracing.motion.samples = v; }, 1, 4, 1);
-        // Kuwahara (kuwahara.js): paints over the noise while orbiting and while the image refines (look: config.js)
-        motion.toggle(t('setup.kuwahara'), () => pathTracing.motion.kuwahara, v => { pathTracing.motion.kuwahara = v; pathTracing.reset(); });
+        // image filter while orbiting and while the image refines: Kuwahara (kuwahara.js, painterly) or edge-aware
+        // denoiser (motion-denoise.js), optionally with history over several frames (config.js)
+        let temporalToggle = null;
+        motion.select(t('setup.motionFilter'), [
+            { label: t('setup.motionFilterOff'), value: 'off' },
+            { label: t('setup.kuwahara'), value: 'kuwahara' },
+            { label: t('setup.motionDenoise'), value: 'denoise' },
+        ], () => pathTracing.motion.filter, v => { pathTracing.motion.filter = v; temporalToggle?.enable(v === 'denoise'); pathTracing.reset(); });
+        temporalToggle = motion.toggle(t('setup.motionTemporal'), () => pathTracing.motion.temporal, v => { pathTracing.motion.temporal = v; });
+        temporalToggle.enable(pathTracing.motion.filter === 'denoise');
     }
 
     // changing the quality -> re-tessellate automatically, path tracing restarts afterwards
@@ -4077,7 +4101,7 @@ if (MODEL_FILE) {
 
 // Debug access for automated tests + fps/memory/polygon display (only with ?debug in the URL)
 if (new URLSearchParams(location.search).has('debug')) {
-    globalThis.__viewer = { getSplats: () => splatMesh, flyToDirection, contours, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
+    globalThis.__viewer = { getSplats: () => splatMesh, screenFade, flyToDirection, contours, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
 }
 
 // --- Resize ---
@@ -4290,7 +4314,13 @@ renderer.setAnimationLoop(() => {
     // focus line over the raster image (uses its depth buffer; fisheye: already in the cube faces)
     if (focusLine && rasterDrawn && !rasterFisheye.active) dof.renderLine(renderer, scene, [ground.material]);
     if (post) lens.end();
-    if (!rasterFisheye.active) contours.render();   // toon/outline lines (not through the fisheye cube map)
+    // toon/outline lines (screen-space pass): fisheye – into each cube face with its camera, then laid over the
+    // picture through the fisheye mapping like the gizmo (raster and HQ)
+    if (!rasterFisheye.active) contours.render();
+    else if (contours.hasLines()) {
+        rasterFisheye.render(renderer, camera, cam => contours.render(cam, { scale: rasterFisheye.faceScale(renderer) }), { overlay: true });
+    }
+    screenFade.frame(!capture && !exportReq);   // soft transition after a change (not into captured images)
     if (capture) {
         // read in the same task as the rendering (afterwards the canvas image is presented and discarded)
         capture(renderer.domElement.toDataURL('image/png'));

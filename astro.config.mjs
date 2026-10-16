@@ -198,9 +198,12 @@ function glassBouncesPatch() {
       const loop = /\n(\t+)for \( var bounce = 0u; bounce < maxBounces; bounce \+\+ \) \{/;
       const next = /\n(\t+)ray\.origin = \$\{ offsetRayOriginFunc \}\( vertexData\.position\.xyz, scatterRec\.direction, hitResult\.normal \);/;
       for (const re of [loop, next]) if ((code.match(new RegExp(re.source, 'g')) || []).length !== 1) this.error(`rindr-glass-bounces: ${re} not found exactly once in PathTracerMegaKernel.js`);
-      code = code.replace(loop, m => '\n\t\t\t\tvar glassBounce = 0u;' + m);
-      // end of the iteration (after Russian roulette): a refraction within the glass budget gives its bounce back
-      code = code.replace(next, (m, tab) => `\n${tab}if ( scatterRec.isTransmissive && glassBounce < \${ __PT_MOTION.glassBounces } ) {\n\n${tab}\tglassBounce ++;\n${tab}\tbounce --;\n\n${tab}}\n` + m);
+      // the budget raises the loop's limit (instead of `bounce --`: a mirror reflection then restarted at bounce 0 and
+      // the environment it hit was drawn as the directly seen background – chrome turned black)
+      code = code.replace(loop, (m, tab) => `\n${tab}var glassBounce = 0u;\n${tab}for ( var bounce = 0u; bounce < maxBounces + glassBounce; bounce ++ ) {`);
+      // end of the iteration (after Russian roulette): a refraction or a smooth mirror reflection (chrome: mirror in
+      // mirror) within the budget does not count
+      code = code.replace(next, (m, tab) => `\n${tab}if ( ( scatterRec.isTransmissive || ( surface.metalness > 0.9 && surface.roughness < 0.1 ) ) && glassBounce < \${ __PT_MOTION.glassBounces } ) {\n\n${tab}\tglassBounce ++;\n\n${tab}}\n` + m);
       return { code: `import { PT_MOTION as __PT_MOTION } from ${JSON.stringify(PT_MOTION_MODULE)};\n` + code, map: null };
     },
   };

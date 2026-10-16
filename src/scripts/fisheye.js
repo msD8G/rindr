@@ -41,6 +41,12 @@ export function fisheyeEnabled() {
     return U.k.value > 1;
 }
 
+/** Current lens parameters (k: 1 = perspective, > 1 = fisheye; aspect) and tan(PERSPECTIVE_LIMIT / 2) – e.g. to
+ *  project into the previous frame's camera (motion-denoise.js) */
+export function fisheyeParams() {
+    return { k: U.k.value, aspect: U.aspect.value, tanLimit: TAN_LIMIT };
+}
+
 /** Camera-space direction (−Z forward) of the fisheye at an NDC point – same formula as the shaders */
 export function fisheyeLocalDirection(ndcX, ndcY, out = new THREE.Vector3()) {
     const qx = ndcX * U.aspect.value, qy = ndcY;
@@ -156,6 +162,14 @@ export class RasterFisheye {
     }
 
     // cube resolution: centre pixel density of the fisheye ≈ that of a cube face
+    /** Pixels of a cube face per pixel of the picture in its centre (≈ 1; the face size is rounded and clamped) –
+     *  overlays drawn into the faces (contour lines) scale their pixel widths with it */
+    faceScale(renderer) {
+        renderer.getDrawingBufferSize(this._size);
+        const perPixel = U.k.value * TAN_LIMIT / (this._size.y / 2);
+        return this.target.width / (Math.PI / 2 / perPixel);
+    }
+
     _resize(renderer) {
         renderer.getDrawingBufferSize(this._size);
         // centre: dθ/dpixel = k·tan(limit/2) / (half height in pixels); a face has 90° over its width

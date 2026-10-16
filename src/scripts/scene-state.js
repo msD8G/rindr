@@ -289,7 +289,11 @@ export async function applyState(ctx, state) {
         if (p.denoise != null) pt.setDenoise(p.denoise);
         if (p.upscale != null) pt.setUpscale(p.upscale);
         if (p.sharpness != null) pt.sharpness = p.sharpness;   // stored until the path tracer is loaded
-        if (p.motion) Object.assign(pt.motion, p.motion);
+        if (p.motion) {
+            const { kuwahara, ...motion } = p.motion;   // older states: kuwahara on/off instead of filter
+            if (kuwahara != null && motion.filter == null) motion.filter = kuwahara ? 'kuwahara' : 'off';
+            Object.assign(pt.motion, motion);
+        }
     }
     // view mode (older states: path tracing on -> HQ)
     const mode = state.view?.mode ?? (state.pathtracing?.enabled != null ? (state.pathtracing.enabled ? 'hq' : 'default') : null);

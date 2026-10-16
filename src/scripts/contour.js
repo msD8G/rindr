@@ -150,24 +150,36 @@ export class ContourPass {
     }
 
     /** Draw the contour lines over the current image (render target as set by the caller, usually the canvas) */
-    render() {
+    /** Are there contour lines to draw (enabled + visible meshes with a contour material)? */
+    hasLines() {
+        return this.enabled && this._groups().length > 0;
+    }
+
+    /**
+     * Draw the contour lines over the current image of the current render target (default the canvas).
+     * camera / scale: fisheye (viewer.js) draws them into each cube face with that face's camera, widths scaled
+     * from screen pixels to face pixels (RasterFisheye.faceScale) – the cube map is then laid over the picture.
+     */
+    render(camera = this.camera, { scale = 1 } = {}) {
         if (!this.enabled) return;
         const groups = this._groups();
         if (!groups.length) return;
-        const { renderer, scene, camera } = this;
-        renderer.getDrawingBufferSize(this._size);
+        const { renderer, scene } = this;
+        const current = renderer.getRenderTarget();
+        if (current) this._size.set(current.width, current.height);
+        else renderer.getDrawingBufferSize(this._size);
         if (this.geo.width !== this._size.x || this.geo.height !== this._size.y) {
             this.geo.setSize(this._size.x, this._size.y);
             this.mask.setSize(this._size.x, this._size.y);
             this._setDepth(this._size.x, this._size.y);
         }
         this.texel.value.set(1 / this._size.x, 1 / this._size.y);
-        this.pixelRatio.value = renderer.getPixelRatio();
+        this.pixelRatio.value = renderer.getPixelRatio() * scale;
         this.depthScale.value = Math.max(this.getDepthScale(), 1e-6);
         this.maxWidth.value = Math.max(...groups.map(g => Math.min(Math.max(g.width, 0.5), 15)));
 
         const prev = {
-            target: renderer.getRenderTarget(), autoClear: renderer.autoClear, background: scene.background,
+            target: current, face: renderer.getActiveCubeFace(), mip: renderer.getActiveMipmapLevel(), autoClear: renderer.autoClear, background: scene.background,
             backgroundNode: scene.backgroundNode, override: scene.overrideMaterial, mask: camera.layers.mask,
             clearAlpha: renderer.getClearAlpha(), toneMapping: renderer.toneMapping,
         };
@@ -204,7 +216,7 @@ export class ContourPass {
             hidden.forEach(o => { o.visible = true; });
             renderer.setClearColor(clearColor, prev.clearAlpha);
             renderer.toneMapping = prev.toneMapping;
-            renderer.setRenderTarget(prev.target);
+            renderer.setRenderTarget(prev.target, prev.face, prev.mip);
         }
         // 3. lines over the image
         renderer.autoClear = false;

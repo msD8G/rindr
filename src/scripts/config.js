@@ -19,9 +19,11 @@ export const PATHTRACING = {
         bounces: 3,             // light paths while orbiting
         samples: 1,             // samples per pixel and frame (more = calmer, but slower)
         holdMs: 250,            // stays reduced this long after release (mouse wheel: no switching per notch)
-        // Kuwahara filter (kuwahara.js): paints over the noise of the reduced image instead of showing it, and
-        // after release refines with the samples up to the final image (look: PATHTRACING.kuwahara)
-        kuwahara: true,
+        // image filter while orbiting and while the image refines (until the final image), instead of showing the
+        // noise: 'kuwahara' paints over it (kuwahara.js, look: PATHTRACING.kuwahara), 'denoise' smooths it edge-aware
+        // (motion-denoise.js, PATHTRACING.denoiseMotion), 'off'
+        filter: 'kuwahara',
+        temporal: false,        // 'denoise': also blend in the previous frames (reprojected) while orbiting
     },
 
     // Kuwahara look (painterly while orbiting and while the image refines) – values chosen by the user
@@ -31,6 +33,22 @@ export const PATHTRACING = {
         eccentricity: 2.5,      // 0 = round strokes, larger = stretched along edges
         sharpness: 0,           // 0 = all sectors equal (soft strokes); > 0 calm areas win over noisy ones
         maxRadius: 8,           // limit in pixels of the full-resolution image (cost ∝ radius²)
+    },
+
+    // soft transition between the successive images (orbit preview → first full sample → refinement stages →
+    // denoised result, image-fade.js): time constant in ms (~95 % after 3×), 0 = jump as before
+    fadeMs: 80,
+
+    // Edge-aware denoiser (motion-denoise.js: à-trous wavelet + optional temporal accumulation)
+    denoiseMotion: {
+        iterations: 5,          // à-trous passes while orbiting (gaps 1, 2, 4, 8, 16 px); while refining fewer with
+                                // the samples (iterations − log2(samples), at least 2 until the final image)
+        sigmaNormal: 64,        // normal weight: cos(angle)^sigmaNormal
+        sigmaPlane: 0.1,        // plane weight: how far a neighbour may leave the tangent plane (sin of the angle)
+        sigmaLuminance: 4,      // luminance weight: allowed difference in units of the local noise (√variance)
+        maxHistory: 8,          // temporal: at most this many frames blended (newest with ≥ 1/maxHistory)
+        clampGamma: 1.5,        // temporal: history clamped to mean ± clampGamma·σ of the current neighbourhood
+        firefly: 8,             // luminance limit per sample (linear) – single bright samples would become blobs
     },
 
     // Technical (benchmark with ?bench in the URL)
@@ -63,6 +81,12 @@ export const IMPORT = {
                                   // opening then retries one level coarser, a quality change keeps the old model
     instancing: true,             // identical solids that the file does not declare as reused share one geometry
                                   // (shape comparison after tessellating, shape-match.js) – saves RAM/GPU memory
+};
+
+// Soft transition of the whole picture on changes (screen-fade.js): HDRI, lens effects, depth of field, materials,
+// visibility, view mode … – the last frame fades out over the new ones (all view modes; not while dragging)
+export const TRANSITION = {
+    ms: 300,               // duration (smoothstep), 0 = jump as before
 };
 
 // Raster view (Basic/Default): meshes with the same geometry + material are drawn as one InstancedMesh
