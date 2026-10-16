@@ -25,6 +25,9 @@ import { debugLog } from './log.js';
 
 // environments up to this size get their importance-sampling table from the library directly (updateEnvironment)
 const SMALL_ENV_PIXELS = 512 * 512;
+// paths per dispatch while orbiting: the whole image in one tile (the GPU time is kept by the resolution, _adapt)
+const MOTION_FRAME_BUDGET = 2 ** 30;
+const _size = new Vector2();
 
 export class PathTracingView {
     constructor(renderer, { denoiseWeightsUrl }) {
@@ -82,10 +85,11 @@ export class PathTracingView {
         this._motionScaleAt = 0;
         this.gpuCautious = false;       // the GPU was reset before (device lost): half the frame target
         this._holdShown = false;        // first sample of a restart incomplete: keep showing the previous image
+        this._holdCover = false;        // … unless it is outdated: raster image meanwhile (_fade)
         this.onRestart = null;          // called then (viewer: soft transition of the picture – the path tracer often
                                         // takes over a change a few frames later, e.g. a new HDRI after its table)
         // soft transition between the images (_fade): rest = share of the non-final image still shown once done
-        this._blend = { last: 0, view: new Matrix4(), proj: new Matrix4(), rest: 0, prepared: false };
+        this._blend = { last: 0, frame: 0, view: new Matrix4(), proj: new Matrix4(), rest: 0, prepared: false };
     }
 
     // Large compute shaders (megakernel ~110 KB WGSL) via createComputePipelineAsync. three.js creates compute
@@ -452,7 +456,7 @@ export class PathTracingView {
         }
         this._readTimestamps();
         if (this._compiling) { rasterize(); return true; }
-        if (pt.fadeState < 1) rasterize();
+        if (pt.fadeState < 1 || (this._holdShown && this._holdCover)) rasterize();
 
         // update the sample count for the display occasionally (it is a GPU readback)
         const now = performance.now();
@@ -604,8 +608,13 @@ export class PathTracingView {
         const b = this._blend, tau = PATHTRACING.fadeMs;
         if (!(tau > 0)) { b.rest = 0; return texture; }
         const now = performance.now(), dt = now - b.last;
-        const cut = Boolean(this._motion) || dt > 100 || !b.view.equals(camera.matrixWorld) || !b.proj.equals(camera.projectionMatrix);
+        const moved = !b.view.equals(camera.matrixWorld) || !b.proj.equals(camera.projectionMatrix);
+        const cut = Boolean(this._motion) || dt > 100 || moved;
         const k = cut ? 1 : 1 - Math.exp(-dt / tau);
+        // the image shown before is outdated: the path tracer was not shown in the last frame (paused, other view
+        // mode, parts fading in) or the view changed – by frames, not time (slow frames of large scenes are no pause)
+        const frame = this.renderer.info.frame, stale = moved || frame - b.frame > 1;
+        b.frame = frame;
         b.last = now;
         b.view.copy(camera.matrixWorld);
         b.proj.copy(camera.projectionMatrix);
@@ -620,12 +629,22 @@ export class PathTracingView {
         if (!b.ready) { b.rest = 0; return texture; }
         const size = this.renderer.getDrawingBufferSize(new Vector2());
         // restart whose first sample is still being computed: keep the image shown before (k 0) instead of a half
-        // tiled one; then it fades in as usual
+        // tiled one; then it fades in as usual. Unless that image is outdated (stale, e.g. back to HQ after playing
+        // an animation) – it flashed up before the new one; the raster image covers the path tracer meanwhile
+        // (render()) and the first sample fades in over it (onRestart)
+        let cover = false;
         if (this._holdShown) {
-            if (!this._firstSampleDone()) return this.imageFade.render(texture, 0, Math.max(size.x, 1), Math.max(size.y, 1));
+            if (stale) this._holdCover = true;
+            if (!this._firstSampleDone()) {
+                if (this._holdCover) return texture;
+                return this.imageFade.render(texture, 0, Math.max(size.x, 1), Math.max(size.y, 1));
+            }
             this._holdShown = false;
+            cover = this._holdCover;
+            this._holdCover = false;
         }
-        return this.imageFade.render(texture, k, Math.max(size.x, 1), Math.max(size.y, 1));
+        if (cover) this.onRestart?.();
+        return this.imageFade.render(texture, cover ? 1 : k, Math.max(size.x, 1), Math.max(size.y, 1));
     }
 
     _fadeSettled() {
@@ -703,6 +722,7 @@ export class PathTracingView {
     _renderPathTraced(pt) {
         // motion over (hold time elapsed): back to full quality, restart
         if (this._motion?.end && performance.now() - this._motion.end > this.motion.holdMs) this._exitMotion();
+        this._syncSize();
         // while orbiting possibly several samples per frame (the whole image is one tile then)
         if (this._motion && !this._pendingCameraUpdate) {
             for (let i = 1; i < this.motion.samples; i++) pt._pathTracer.update();
@@ -750,15 +770,19 @@ export class PathTracingView {
 
     // reduced settings for motion (once per motion; changing the resolution reallocates buffers)
     _enterMotion() {
-        this._holdShown = false;   // orbiting shows every frame anew
+        this._holdShown = this._holdCover = false;   // orbiting shows every frame anew
         if (this._motion) { this._motion.end = 0; return; }
         const pt = this.pathTracer;
-        this._motion = { saved: { renderScale: pt.renderScale, bounces: this.bounces, minSamples: pt.minSamples }, end: 0 };
+        this._motion = { saved: { renderScale: pt.renderScale, bounces: this.bounces, minSamples: pt.minSamples, frameBudget: pt.frameBudget }, end: 0 };
         pt.renderScale = Math.min(this.motion.renderScale, pt.renderScale) * this._motionScale;   // learned from the GPU time
         pt.maxBounces = Math.min(this.motion.bounces, this.bounces);
         // glass keeps the bounces of standing still (refractions within this budget are not counted, pt-motion.js)
         PT_MOTION.glassBounces.value = Math.max(this.bounces - pt.maxBounces, 0);
         pt.minSamples = 0;   // show immediately (otherwise the raster image covers it until the first sample is counted)
+        // every frame starts over: the whole image in one dispatch. With the refining budget (learned per tile, small
+        // for large scenes / 4K) the image was split into tiles and only the first one (bottom left) was ever traced
+        // before the next camera change – the rest stayed black (quarters, black half)
+        pt.frameBudget = MOTION_FRAME_BUDGET;
     }
 
     _exitMotion() {
@@ -767,6 +791,7 @@ export class PathTracingView {
         this._motion = null;
         const pt = this.pathTracer;
         pt.renderScale = m.saved.renderScale;
+        pt.frameBudget = m.saved.frameBudget;
         pt.maxBounces = this.bounces;
         PT_MOTION.glassBounces.value = 0;
         // show the first full sample immediately instead of the raster image (see _renderFirstSample)
@@ -783,10 +808,8 @@ export class PathTracingView {
     _renderFirstSample() {
         const pt = this.pathTracer, inner = pt._pathTracer;
         if (!('_tileProgress' in inner)) { this._fullFirst = false; pt.minSamples = this._fullFirstMin; return; }   // wavefront
-        // the size change otherwise happens only in renderSample()
-        const size = this.renderer.getDrawingBufferSize(new Vector2());
-        const w = Math.floor(pt.renderScale * size.x), h = Math.floor(pt.renderScale * size.y);
-        pt.setSize(w, h);
+        // the inner size change otherwise happens only in renderSample()
+        const { w, h } = this._syncSize();
         const current = inner.getSize(new Vector2());
         if (current.x !== w || current.y !== h) inner.setSize(w, h);
         inner.lowResMode = false;
@@ -800,6 +823,17 @@ export class PathTracingView {
             if (inner._tileProgress === 1) break;
         }
         this._holdShown = inner._tileProgress < 1;
+    }
+
+    // Image size from the canvas and renderScale – before renderSample(): the library resizes inside it only after
+    // its "first frame since the reset" check, so that frame counted as low-res and traced nothing (opacity 0 →
+    // the raster image covered the path tracer: Default view flashed up when orbiting/zooming began and whenever
+    // the orbit resolution changed)
+    _syncSize() {
+        const pt = this.pathTracer, size = this.renderer.getDrawingBufferSize(_size);
+        const w = Math.floor(pt.renderScale * size.x), h = Math.floor(pt.renderScale * size.y);
+        pt.setSize(w, h);
+        return { w, h };
     }
 
     // first sample of the restart complete? (megakernel tile progress)
