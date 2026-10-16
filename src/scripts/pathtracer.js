@@ -14,7 +14,6 @@
 import { Matrix4, Vector2 } from 'three/webgpu';
 import { PATHTRACING } from './config.js';   // defaults (samples, resolution, bounces, …)
 import { isEnvCdfReady, prepareEnvCdf } from './env-cdf.js';
-import { compileAsync } from './shader-compile.js';
 import { KuwaharaFilter } from './kuwahara.js';
 import { MotionDenoiser } from './motion-denoise.js';
 import { ImageFade } from './image-fade.js';
@@ -69,12 +68,7 @@ export class PathTracingView {
         this._envToken = 0;
         if (this.supported) { this._installAsyncCompile(); this._installTimestamps(); }
 
-        // shader precompilation of the denoiser's albedo/normal pass (_prepareDenoiser); the viewer replaces
-        // compileScene with the batch-aware variant and reports changes of the drawn objects via compileKey
-        this.compileScene = (scene, camera) => compileAsync(renderer, scene, camera);
-        this.compileKey = () => '';
-        this._denoisePrep = null;       // { key, done }
-        this._materialsVersion = 0;
+        this._denoisePrep = null;       // OIDN guide kernel compiled for this scene data: { key, done } (_prepareDenoiser)
         this._filterState = { spp: 0, view: new Matrix4(), proj: new Matrix4(), w: 0, h: 0, k: 1 };
         this._motionReady = false;      // motion denoiser compiled once for this scene (_prepareMotionDenoiser)
         this._ownCompile = null;        // promise list: compute pipelines created meanwhile compile asynchronously
@@ -164,20 +158,28 @@ export class PathTracingView {
         this.kuwahara = new KuwaharaFilter(this.renderer, PATHTRACING.kuwahara);
         this.motionDenoiser = new MotionDenoiser(this.renderer, PATHTRACING.denoiseMotion);
         this.guides = new GuideKernel(PATHTRACING.denoiseMotion);   // its guide buffers, traced like the image
+        // OIDN's albedo/normal guides from the same kernel instead of the library's raster pass (perspective camera:
+        // did not fit the fisheye – noise stayed, ghost edges –, nor depth of field or mirrors/glass)
+        this.denoiseGuides = new GuideKernel({ ...PATHTRACING.denoiseMotion, samples: PATHTRACING.denoiseGuideSamples });
+        this.denoiser._renderAuxiliaryBuffers = (width, height) => {
+            const guides = this.denoiseGuides, pt = this.pathTracer;
+            guides.trace(this.renderer, pt._bvhData, width, height, pt.camera);
+            return { textures: [guides.albedo, guides.normal] };
+        };
         this.imageFade = new ImageFade(this.renderer);
         // the path tracer's "upscaler" slot: image filter while orbiting and while the image refines (Kuwahara or
         // denoiser, see _filter), then FSR if switched on, then the soft transition to the shown image (_fade)
         const fsr = this.upscaler;
         this._imageChain = {
             init: renderer => fsr.init(renderer),
-            dispose: () => { fsr.dispose?.(); this.kuwahara.dispose(); this.motionDenoiser.dispose(); this.guides.dispose(); this.imageFade.dispose(); },
+            dispose: () => { fsr.dispose?.(); this.kuwahara.dispose(); this.motionDenoiser.dispose(); this.guides.dispose(); this.denoiseGuides.dispose(); this.imageFade.dispose(); },
             upscale: (texture, camera) => {
                 texture = this._filter(texture);
                 if (this.upscaleEnabled) texture = fsr.upscale(texture, camera);
                 return this._fade(texture, camera);
             },
         };
-        // the denoise waits until the shaders of the albedo/normal pass are compiled (_prepareDenoiser)
+        // the denoise waits until the guide kernel is compiled (_prepareDenoiser)
         const denoiseUpdate = this.denoiser.update.bind(this.denoiser);
         this.denoiser.update = target => (this._denoisePrep && !this._denoisePrep.done ? this.denoiser.texture : denoiseUpdate(target));
         pt.setDenoiser(this.denoiseEnabled ? this.denoiser : null);
@@ -419,7 +421,6 @@ export class PathTracingView {
     }
 
     updateMaterials() {
-        this._materialsVersion++;   // new materials -> new shader variants for the denoiser's albedo/normal pass
         if (!this.ready) return;
         this.pathTracer.updateMaterials();
     }
@@ -536,31 +537,31 @@ export class PathTracingView {
         set(Math.min(target / Math.max(worst, 0.5), worst < target / 3 ? 2 : 1.25));
     }
 
-    // The denoiser rasterizes albedo + normals with its own shader variant of every material. Built at denoise
-    // time this blocked the main thread (large assembly: ~0.8 s) and then the GPU process (synchronous pipelines, ~1 s).
-    // Instead compile them while the samples accumulate: the denoiser's own pass setup (_renderAuxiliaryBuffers:
-    // target, MRT, tone mapping) with compileAsync (shader-compile.js) instead of render – node building object
-    // by object with pauses, pipelines asynchronously. Again when the drawn objects or the materials change.
+    // OIDN's guide kernel (pt-guides.js, see _create) – compiled asynchronously while the samples accumulate (its
+    // first dispatch creates the pipeline, _ownCompile); the denoise waits for it. Once per scene data (pt._bvhData:
+    // the kernel is built from it). Before, the library rasterized the guides with a shader variant of every material
+    // (compiled here in advance, again with each material change).
     _prepareDenoiser() {
         if (!this.denoiseEnabled) return;
-        const key = `${this.compileKey()}/${this._materialsVersion}`;
-        if (this._denoisePrep?.key === key) return;
+        const pt = this.pathTracer, key = pt._bvhData;
+        if (!key || this._denoisePrep?.key === key) return;
         const prep = this._denoisePrep = { key, done: false };
-        const r = this.renderer, size = this.pathTracer._pathTracer.getSize(new Vector2());
-        const render = r.render;
-        let job = null;
         const t0 = performance.now();
-        r.render = (scene, camera) => { job = this.compileScene(scene, camera); };
+        let job = null;
         try {
-            this.denoiser._renderAuxiliaryBuffers(Math.max(size.x, 1), Math.max(size.y, 1));
+            const own = this._ownCompile = [];
+            const size = pt._pathTracer.getSize(new Vector2());
+            const { kernel, dispatch } = this.denoiseGuides.update(key, Math.max(size.x, 1), Math.max(size.y, 1), pt.camera);
+            this.renderer.compute(kernel, dispatch);
+            job = Promise.all(own);
         } catch (err) {
             console.warn('[Pathtracer] denoiser precompile failed:', err);
         } finally {
-            r.render = render;
+            this._ownCompile = null;
         }
         Promise.resolve(job).catch(err => console.warn('[Pathtracer] denoiser precompile failed:', err)).finally(() => {
             prep.done = true;
-            debugLog(`[Pathtracer] denoiser shaders compiled in ${(performance.now() - t0).toFixed(0)} ms`);
+            debugLog(`[Pathtracer] denoiser guide kernel compiled in ${(performance.now() - t0).toFixed(0)} ms`);
         });
     }
 

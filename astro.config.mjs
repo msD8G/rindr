@@ -94,7 +94,6 @@ function shadowCatcherPatch() {
 //   (src/scripts/env-cdf.js) instead of computing it on the main thread
 // - TextureCache.setFromScene hashed the uuid of a fresh clone → never equal → every updateEnvironment()
 //   rebuilt environment and background (useMegakernel: table computed twice)
-// - OIDNDenoiser: one MRT node for the albedo/normal pass (see below)
 // - EquirectHdrInfoUniform: `Source` → `TextureSource` (renamed in three r186, the old name warns in the console)
 const ENV_CDF_MODULE = fileURLToPath(new URL('./src/scripts/env-cdf.js', import.meta.url));
 function pathTracerPerfPatch() {
@@ -114,13 +113,6 @@ function pathTracerPerfPatch() {
       if (file.endsWith('three-gpu-pathtracer/src/uniforms/EquirectHdrInfoUniform.js')) {
         replaceOnce(' HalfFloatType, Source, ', ' HalfFloatType, TextureSource, ', 'EquirectHdrInfoUniform.js');
         replaceOnce('new Source(', 'new TextureSource(', 'EquirectHdrInfoUniform.js');
-        return { code, map: null };
-      }
-      if (file.endsWith('three-gpu-pathtracer/src/webgpu/denoise/OIDNDenoiser.js')) {
-        // one MRT node for the albedo/normal pass: three.js keys render contexts by mrt.id – a new node per
-        // pass rebuilt every material variant on each denoise (~0.8 s main thread + synchronous pipelines);
-        // stable, the shaders can also be compiled in advance (PathTracingView._prepareDenoiser)
-        replaceOnce('renderer.setMRT( mrt( {', 'renderer.setMRT( this._auxMRT ??= mrt( {', 'OIDNDenoiser.js');
         return { code, map: null };
       }
       if (file.endsWith('three-gpu-pathtracer/src/webgpu/WebGPUPathTracer.js')) {

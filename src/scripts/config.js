@@ -9,6 +9,7 @@ export const PATHTRACING = {
     renderScale: 1,           // resolution relative to the window (0.25–1); < 1 is upscaled via FSR
     filterGlossyFactor: 1,      // glossy filter 0–1: dampens glossy noise (fireflies), slightly softer
     denoise: true,              // OIDN denoising after maxSamples
+    denoiseGuideSamples: 8,     // rays per pixel of OIDN's albedo/normal guides (antialiasing, depth of field; pt-guides.js)
     upscale: true,              // FSR upscaling (only useful with renderScale < 1)
     sharpness: 1,               // FSR sharpness 0–2
 

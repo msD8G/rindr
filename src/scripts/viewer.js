@@ -307,9 +307,6 @@ function fitShadows(size, center = new THREE.Vector3()) {
 
 // --- Pathtracing (three-gpu-pathtracer, WebGPU) ---
 const pathTracing = new PathTracingView(renderer, { denoiseWeightsUrl: DENOISE_WEIGHTS_URL });
-// shaders of the denoiser's albedo/normal pass are compiled in advance – through the batches like the raster view
-pathTracing.compileScene = (s, c) => batcher.compileAsync(s, c);
-pathTracing.compileKey = () => batcher.generation;
 // path tracer modules: not in the start bundle – loaded when the browser is idle after the start, so
 // switching to HQ later does not wait for the download (setScene() waits for it if HQ comes earlier)
 (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => {
