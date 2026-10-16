@@ -81,6 +81,10 @@ export const IMPORT = {
                                   // opening then retries one level coarser, a quality change keeps the old model
     instancing: true,             // identical solids that the file does not declare as reused share one geometry
                                   // (shape comparison after tessellating, shape-match.js) – saves RAM/GPU memory
+    // binary FBX is read by an own lean reader (fbx/fbx-parse.js, typed arrays). Animated / skinned FBX up to this
+    // size still go to three.js' FBXLoader (animation, skinning, blend shapes) – it needs roughly 6–8× the file size
+    // in JS heap, and all JS heaps of a tab share one 4 GB area in Chrome (independent of the computer's RAM)
+    fbxLoaderMaxBytes: 256 * 2 ** 20,
 };
 
 // Soft transition of the whole picture on changes (screen-fade.js): HDRI, lens effects, depth of field, materials,

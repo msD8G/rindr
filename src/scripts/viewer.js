@@ -43,7 +43,10 @@ import { GROUND_SURFACE } from './ground-reflection.js';
 import { BackgroundDome } from './background-dome.js';
 import { ContactShadow } from './contact-shadow.js';
 import { ModelAnimation, createPlaybar } from './animation.js';
-import { confirmDialog, dialogOpen } from './dialog.js';   // patches the path tracer's background lookup – import before it is created
+import { confirmDialog, choiceDialog, dialogOpen } from './dialog.js';
+import { showNotice } from './notice.js';
+import { triangleLimits, deviceMemoryGB, memoryBudget, BYTES_PER_TRIANGLE, formatBytes, setSafeMode } from './memory-budget.js';
+import { beginLoad, endLoad, crashedLoad, markSafe, isSafe, clearSafe } from './load-guard.js';   // patches the path tracer's background lookup – import before it is created
 import { ViewModeBar } from './view-mode.js';
 import { SetupMenu } from './setup-menu.js';
 import { buildAbout } from './about.js';
@@ -2029,23 +2032,85 @@ function solidQualities(plan, quality = settings.meshQuality) {
 // kind 'open': nothing loaded. 'reload' (quality changed) / 'parts': the old model stays, the setting
 // returns to the level the model has.
 // ?debug&triangleBudget=…&triangleLimit=… (testing): override the limits from config.js
-const IMPORT_LIMITS = (() => {
+// triangle budget/limit of this device (memory-budget.js: config values are the upper end, smaller devices and the
+// safe mode scale down); ?debug&triangleBudget=…&triangleLimit=… override
+const importLimits = () => {
     const params = new URLSearchParams(location.search), debug = params.has('debug');
     const get = (name, fallback) => (debug && Number(params.get(name)) > 0 ? Number(params.get(name)) : fallback);
-    return { budget: get('triangleBudget', IMPORT.triangleBudget), limit: get('triangleLimit', IMPORT.triangleLimit) };
-})();
+    const device = triangleLimits({ budget: IMPORT.triangleBudget, limit: IMPORT.triangleLimit });
+    return { budget: get('triangleBudget', device.budget), limit: get('triangleLimit', device.limit) };
+};
+const displayName = name => (name || '').replace(/\.[^.]+$/, '');
+// RAM the browser reports (rounded; ?deviceMemory=… for tests)
+function deviceMemoryText() {
+    const reported = Number(new URLSearchParams(location.search).get('deviceMemory')) || navigator.deviceMemory;
+    return reported ? t('memory.deviceGb', { gb: deviceMemoryGB().toLocaleString(getLocale()) }) : t('memory.deviceUnknown');
+}
+// Mesh models (glTF/FBX/STL/PLY) cannot be tessellated coarser: above the device's limit ask before the
+// memory-heavy part (BVHs, GPU upload) – the triangle count is known then
+async function confirmLargeModel({ name, triangles }) {
+    if (triangles <= importLimits().limit) return true;
+    const ok = await choiceDialog({
+        icon: 'warning', title: t('memory.large.title'),
+        message: t('memory.large.message', { name: displayName(name), triangles: formatCount(triangles) }),
+        facts: [
+            [t('memory.large.triangles'), formatCount(triangles)],
+            [t('memory.large.needed'), formatBytes(triangles * BYTES_PER_TRIANGLE, getLocale())],
+            [t('memory.device'), deviceMemoryText()],
+        ],
+        buttons: [
+            { label: t('memory.large.load'), value: true, kind: 'secondary' },
+            { label: t('dialog.cancel'), value: false, kind: 'primary', cancel: true },
+        ],
+    });
+    if (!ok) flashStatus(t('memory.cancelled'), 3000);
+    return ok;
+}
+async function confirmLargeFile({ name, size }) {
+    const ok = await choiceDialog({
+        icon: 'warning', title: t('memory.file.title'),
+        message: t('memory.file.message', { name: displayName(name) }),
+        facts: [[t('memory.file.size'), formatBytes(size, getLocale())], [t('memory.device'), deviceMemoryText()]],
+        buttons: [
+            { label: t('memory.large.load'), value: true, kind: 'secondary' },
+            { label: t('dialog.cancel'), value: false, kind: 'primary', cancel: true },
+        ],
+    });
+    if (!ok) flashStatus(t('memory.cancelled'), 3000);
+    return ok;
+}
+// Crash guard around a model load (load-guard.js): marker while loading; the model that ended the tab last time is
+// opened in safe mode (half the memory budget: coarser tessellation, fewer workers in parallel)
+async function guardedLoad(source, run, { opening = true } = {}) {
+    const info = { name: source.name, size: source.file?.size ?? source.main?.size ?? source.content?.byteLength ?? source.size ?? null, url: source.url ?? null };
+    // a file that alone takes a large share of the budget (reading it needs its size, parsing about as much again):
+    // ask before reading – the triangle check comes only after it
+    if (opening && info.size && info.size * 2 > memoryBudget() && !await confirmLargeFile(info)) return;
+    const safe = isSafe(info);
+    setSafeMode(safe);
+    if (safe) showNotice({ id: 'safe-mode', icon: 'info', title: t('memory.safe.title'), message: t('memory.safe.message', { name: displayName(info.name) }), timeout: 15000 });
+    beginLoad(info);
+    try {
+        return await run(safe);
+    } finally {
+        endLoad();
+        if (safe) clearSafe();
+        setSafeMode(false);
+    }
+}
 let loadedQuality = null;   // level the current model is tessellated with
 let appliedPartQuality = {};   // part levels the current model is tessellated with
 const formatCount = n => new Intl.NumberFormat(getLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 function showLimitError(err, kind) {
     console.warn('[Load]', err.message);
     const params = { triangles: formatCount(err.triangles), limit: formatCount(err.limit), quality: t(`tessellation.quality.${err.quality}`) };
-    if (kind === 'parts') showStatus(t('status.partsTooFine', params));
+    const notice = message => showNotice({ id: 'limit', icon: 'warning', title: t('memory.limit.title'), message: `${message}\n${t('memory.device')}: ${deviceMemoryText()}` });
+    if (kind === 'parts') notice(t('status.partsTooFine', params));
     else if (kind === 'reload' && loadedQuality) {
         settings.meshQuality = loadedQuality;
         qualityController?.refresh();
-        showStatus(t('status.qualityTooFine', { ...params, previous: t(`tessellation.quality.${loadedQuality}`) }));
-    } else showStatus(t('status.modelTooLarge', params));
+        notice(t('status.qualityTooFine', { ...params, previous: t(`tessellation.quality.${loadedQuality}`) }));
+    } else notice(t('status.modelTooLarge', params));
 }
 
 // Release large STEP files after import (content on the main thread + index/file in the workers):
@@ -2090,7 +2155,7 @@ async function retessellateParts() {
         showProgress(t('status.tessellatingParts'));
         const result = await tessellateStep(model.content, settings.meshQuality, showProgress, {
             bvh: pathTracing.supported, instancing: IMPORT.instancing, solidQualities: () => target, onlySolids: () => changed,
-            limits: { auto: false, ...IMPORT_LIMITS },
+            limits: { auto: false, ...importLimits() },
         });
         // same meshes (instance + face colour) expected – otherwise re-tessellate completely
         const byKey = new Map(currentMeshes.map(m => [m.userData.key, m]));
@@ -2819,7 +2884,11 @@ document.addEventListener('fullscreenchange', () => {
 function setViewMode(mode) {
     smoothChange();
     // the path tracer cannot trace Gaussian splats – they are shown rasterised (that is their final look)
-    if (mode === 'hq' && (!pathTracing.supported || splatMesh)) mode = 'default';
+    if (mode === 'hq' && !pathTracing.supported) {
+        showNotice({ id: 'no-hq', icon: 'info', title: t('feature.hqUnsupported.title'), message: t('feature.hqUnsupported.message'), timeout: 12000 });
+        mode = 'default';
+    }
+    if (mode === 'hq' && splatMesh) mode = 'default';
     // HQ while playing: pause first (the path tracer shows the paused frame); another mode chosen during
     // playing: no automatic return to HQ
     if (animPlaying && clipAnims().length) { hqBeforePlay = false; if (mode === 'hq') setAnimPlaying(false); }
@@ -3075,7 +3144,7 @@ window.addEventListener('pointermove', () => { if (loadRender.active) loadRender
 // --- Load and process the model (STEP: tessellate; glTF/FBX: take over meshes) ---
 // reload = re-tessellate the same STEP model (materials + transforms are kept). The old model stays
 // visible until the new one is done; when opening, the model builds up part by part.
-async function loadModel(reload = false) {
+async function loadModel(reload = false, safe = false) {
     if (model.type === 'splat') {
         // a .ply can also be a plain mesh: then the mesh import
         if (await isSplatSource(model)) return loadSplatScene();
@@ -3169,6 +3238,8 @@ async function loadModel(reload = false) {
         // the limit is refused (ImportLimitError → catch below, old model stays).
         const tessellateWithLimits = async () => {
             const levels = Object.keys(TESS_PRESETS);
+            // safe mode (the last load of this file ended the tab): start at the coarsest level
+            if (safe && !reload) { settings.meshQuality = levels[0]; qualityController?.refresh(); }
             const requested = settings.meshQuality;
             let quality = requested;
             const counted = {};   // level -> triangles counted until the limit stopped it
@@ -3178,7 +3249,7 @@ async function loadModel(reload = false) {
                         bvh: pathTracing.supported, instancing: IMPORT.instancing, onPlan: p => { plan = p; setupNodes(p.nodes); }, onSolid,
                         // only part levels (null = global level – it may still become coarser)
                         solidQualities: p => solidQualities(p, quality).map(q => (q === quality ? null : q)),
-                        limits: { auto: !reload, ...IMPORT_LIMITS },
+                        limits: { auto: !reload, ...importLimits() },
                     });
                     usedQualities = solidQualities(plan, res.quality);
                     if (res.quality !== requested) {
@@ -3208,7 +3279,7 @@ async function loadModel(reload = false) {
         let plan = null, usedQualities = [];
         const result = model.type === 'step'
             ? await tessellateWithLimits()
-            : await importMeshFile(model, { renderer, materialManager, onStatus: showProgress, bvh: pathTracing.supported });
+            : await importMeshFile(model, { renderer, materialManager, onStatus: showProgress, bvh: pathTracing.supported, checkSize: confirmLargeModel });
         const { geometries, meshes, nodes, missing } = result;
         root.userData.bim = result.bim || null;   // IFC: property lookups (worker stays open, closed in disposeRoot)
         root.userData.ifcOrigin = result.bim?.origin || null;   // IFC: shift to the origin (metres) – alignment, BCF
@@ -3289,8 +3360,10 @@ async function loadModel(reload = false) {
         appliedPartQuality = { ...settings.partQuality };
         if (reducedQuality) {
             const q = reducedQuality;
-            flashStatus(t('status.qualityReduced', { triangles: formatCount(q.triangles), from: t(`tessellation.quality.${q.from}`), to: t(`tessellation.quality.${q.to}`) }), 8000);
+            showNotice({ id: 'quality', icon: 'info', title: t('memory.reduced.title'), timeout: 12000,
+                message: t('status.qualityReduced', { triangles: formatCount(q.triangles), from: t(`tessellation.quality.${q.from}`), to: t(`tessellation.quality.${q.to}`) }) });
         }
+        if (result.warnings?.includes('fbxStatic')) showNotice({ id: 'fbx-static', icon: 'info', title: t('memory.fbxStatic.title'), message: t('memory.fbxStatic.message', { name: displayName(model.name) }) });
         assetsWindow.refresh();
         if (missing?.length) showStatus(t('status.missingTextures', { files: missing.slice(0, 3).map(u => u.split(/[\\/]/).pop()).join(', ') +
             (missing.length > 3 ? ` (+${missing.length - 3})` : '') }));
@@ -3540,7 +3613,7 @@ function runLoad(kind) {
                 // additional model (only when no main load is waiting)
                 loadAbort = new AbortController();
                 const item = addQueue.shift();
-                loading = loadExtraModel(item.source, item.options);
+                loading = guardedLoad(item.source, () => loadExtraModel(item.source, item.options));
                 await loading;
                 loading = null;
                 loadAbort = null;
@@ -3553,7 +3626,7 @@ function runLoad(kind) {
             if (next === 'open' && nextModel) { model = nextModel; nextModel = null; }
             if (!model || (next !== 'open' && model.type !== 'step')) continue;
             loadAbort = new AbortController();
-            loading = next === 'parts' ? retessellateParts() : loadModel(next === 'reload');
+            loading = next === 'parts' ? retessellateParts() : guardedLoad(model, safe => loadModel(next === 'reload', safe), { opening: next === 'open' });
             await loading;
             loading = null;
             loadAbort = null;
@@ -3599,7 +3672,7 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
         if (source.type === 'step') {
             const content = source.file ? await readStepFile(source.file, signal) : await fetchStepFile(source.url, signal);
             result = await tessellateStep(content, settings.meshQuality, showProgress, {
-                bvh: pathTracing.supported, instancing: IMPORT.instancing, onPlan: p => { plan = p; }, limits: { auto: true, ...IMPORT_LIMITS },
+                bvh: pathTracing.supported, instancing: IMPORT.instancing, onPlan: p => { plan = p; }, limits: { auto: true, ...importLimits() },
             });
         } else {
             if (!source.main) {
@@ -3607,7 +3680,7 @@ async function loadExtraModel(source, { sceneIndex, placement: savedPlacement } 
                 if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 source.main = await res.blob();
             }
-            result = await importMeshFile(source, { renderer, materialManager, onStatus: showProgress, bvh: pathTracing.supported });
+            result = await importMeshFile(source, { renderer, materialManager, onStatus: showProgress, bvh: pathTracing.supported, checkSize: confirmLargeModel });
         }
         const { geometries, meshes, nodes } = result;
         const groups = nodes.map(n => { const g = new THREE.Group(); g.name = n.name; if (n.ifc) g.userData.ifc = n.ifc; return g; });
@@ -4093,7 +4166,19 @@ qualityController.enable(false);
 // fill the setup menu even without a model; open at start with ?debug
 setupGUI();
 if (new URLSearchParams(location.search).has('debug')) requestAnimationFrame(() => setSetupOpen(true));
-if (MODEL_FILE) {
+// the last model load ended the tab (out of memory – load-guard.js): tell, open that model sparingly next time; a
+// ?model= URL is not opened again by itself (it would end the tab again) – the notice offers it
+const crashed = crashedLoad();
+if (crashed) {
+    markSafe(crashed);
+    const reopen = crashed.url ? () => openModel(sourceForUrl(crashed.name, crashed.url)) : null;
+    showNotice({
+        id: 'crash', icon: 'warning', title: t('memory.crash.title'),
+        message: t(reopen ? 'memory.crash.message' : 'memory.crash.messageDrop', { name: displayName(crashed.name) }) + `\n${t('memory.device')}: ${deviceMemoryText()}`,
+        actions: reopen ? [{ label: t('memory.crash.reopen'), primary: true, onClick: reopen }] : [],
+    });
+}
+if (MODEL_FILE && !(crashed?.url && crashed.name === MODEL_FILE)) {
     openModel(sourceForUrl(MODEL_FILE, MODEL_URL));
 } else {
     showDropHint();

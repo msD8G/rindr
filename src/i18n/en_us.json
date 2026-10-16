@@ -1467,5 +1467,49 @@
         "gradientTop": "top",
         "gradientAddHint": "Click into the gradient to add a colour stop",
         "stopHint": "Double-click = colour · drag = move · drag away up/down = remove"
+    },
+    "memory": {
+        "device": "Device memory",
+        "deviceUnknown": "not reported by the browser",
+        "deviceGb": "{gb} GB",
+        "cancelled": "Loading cancelled",
+        "large": {
+            "title": "Very large model",
+            "message": "“{name}” has {triangles} triangles. It probably needs more memory than this device gives the browser – the view may become slow or the tab may crash.",
+            "triangles": "Triangles",
+            "needed": "Needed (estimate)",
+            "load": "Load anyway"
+        },
+        "file": {
+            "title": "Very large file",
+            "message": "“{name}” is very large for the memory of this device. Even reading it may take the browser to its limit.",
+            "size": "File size"
+        },
+        "limit": {
+            "title": "Model too large for this device"
+        },
+        "reduced": {
+            "title": "Quality adjusted automatically"
+        },
+        "safe": {
+            "title": "Safe mode",
+            "message": "“{name}” is opened with less memory this time: coarser tessellation and less work in parallel."
+        },
+        "crash": {
+            "title": "Last load was interrupted",
+            "message": "While opening “{name}” the browser ended the tab – most likely it ran out of memory. Next time rindr opens it more sparingly.",
+            "messageDrop": "While opening “{name}” the browser ended the tab – most likely it ran out of memory. Drop the file again: rindr then opens it more sparingly.",
+            "reopen": "Open sparingly"
+        },
+        "fbxStatic": {
+            "title": "Loaded without animation",
+            "message": "“{name}” is too large for the full FBX import in the browser. Geometry, materials and textures are there – animations, skinning and blend shapes were not loaded."
+        }
+    },
+    "feature": {
+        "hqUnsupported": {
+            "title": "HQ not available",
+            "message": "Path tracing needs WebGPU. This browser or graphics card does not support it – the view stays in Default."
+        }
     }
 }

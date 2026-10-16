@@ -18,6 +18,7 @@ import { t, getLocale } from './i18n.js';
 import { Matrix4 } from 'three';
 import { Instancer } from './instancer.js';
 import { debugLog } from './log.js';
+import { memoryBudget, workersWithin, MemoryGate } from './memory-budget.js';
 
 // Tessellation quality levels:
 //   rel = chord error relative to the solid diagonal, ang = max. angle between normals (rad)
@@ -114,27 +115,34 @@ class WorkerPool {
 let pool = null;
 let session = null; // { source, bytes, offsets, plan, ready: Promise }
 
-// Without SharedArrayBuffer (no cross-origin isolation, e.g. GitHub Pages) every worker holds its own copy
-// of the file: all copies together stay within this budget – a 900 MB STEP got 6 copies before and failed
-// with "Data cannot be cloned, out of memory"
-const COPY_BUDGET = 1.5 * 2 ** 30;
+// Pool size from the device's memory budget (memory-budget.js), not only from the CPU cores: every worker needs
+// its own heap (caches, partial results – a large assembly peaked at ~7 GB with 16 workers). Without
+// SharedArrayBuffer (no cross-origin isolation) every worker also holds its own copy of the file (a 900 MB STEP got
+// 6 copies and failed with "Data cannot be cloned, out of memory"). The file (shared) and the main thread's results
+// (~30 % of the budget) are kept free.
+const WORKER_BYTES = 450 * 2 ** 20;   // measured: a large assembly peaked ~370 MB higher per worker
 
-/** @param {number} [fileSize] STEP file size (bytes) – limits the workers when each needs a copy */
-function poolSize(fileSize = 0) {
+/** @param {number} [fileSize] STEP file size (bytes) @param {boolean} [shared] the file is a SharedArrayBuffer */
+function poolSize(fileSize = 0, shared = true) {
     // ?workers=N (testing): fixed pool size
     const forced = Number(new URLSearchParams(self.location?.search || '').get('workers'));
     if (forced > 0) return Math.min(forced, 32);
     const cores = navigator.hardwareConcurrency || 4;
-    if (self.crossOriginIsolated) return Math.max(1, Math.min(cores, 16));
-    const byMemory = fileSize > 0 ? Math.floor(COPY_BUDGET / fileSize) : 6;
-    return Math.max(1, Math.min(cores, 6, byMemory));
+    const reserved = memoryBudget() * 0.3 + (shared ? fileSize : 0);
+    return workersWithin(WORKER_BYTES + (shared ? 0 : fileSize), reserved, Math.min(cores, shared ? 16 : 6));
 }
+
+// Extra memory of one BVH build in a worker (bounds per triangle, reordered index, nodes, tangents; the geometry
+// buffers themselves are transferred) – the gate keeps the builds running at once within a share of the budget
+const bvhJobBytes = g => 70 * (g.index.length / 3) + 40 * (g.positions.length / 3);
+let bvhGate = null;
+const gate = () => (bvhGate ??= new MemoryGate(memoryBudget() * 0.3));
 
 async function prepare(source, onStatus) {
     if (session && session.source === source) return session.ready;
     const shared = !!self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
     // copies per worker: pool size depends on the file size (smaller pool for large files, back for small ones)
-    const size = poolSize(shared ? 0 : source.byteLength);
+    const size = poolSize(source.byteLength, shared);
     if (pool && pool.workers.length !== size) { pool.terminate(); pool = null; }
     pool ??= new WorkerPool(size);
     session = { source };
@@ -184,7 +192,7 @@ async function prepare(source, onStatus) {
 // Converters (HOOPS Exchange, …) hide the original program: then the beginning of the data is searched
 // for CATIA traces (CATPart/CATProduct names, e.g. 'Product1_AllCATPart').
 // Test/override: ?upAxis=z|y.
-// FreeCAD: Z up by convention (3D printing models such as test models lay on their side before)
+// FreeCAD: Z up by convention (3D printing test models lay on their side before)
 const Z_UP_SYSTEMS = /CATIA|3DEXPERIENCE|\bNX\s*\d*\b|UNIGRAPHICS|SOLID\s*EDGE|FREECAD/i;
 const Y_UP_SYSTEMS = /SOLID\s*WORKS|SWSTEP|INVENTOR|CREO|PRO\/?ENGINEER|FUSION/i;
 const CATIA_TRACES = /CAT(?:Part|Product)\b|CATIA/;
@@ -882,8 +890,15 @@ export function boxUVs(positions, normals, tile = UV_TILE) {
 // Build BVH (+ tangents) of one geometry in a worker; buffers are transferred there and back.
 // shapeSeed > 0: also the shape fingerprint (g.shape, for the Instancer)
 async function buildBVH(w, g, shapeSeed = 0) {
-    const r = await requestWorker(w, { type: 'bvh', positions: g.positions, index: g.index, normals: g.normals, uvs: g.uvs, shape: shapeSeed > 0, seed: shapeSeed },
-        [g.positions.buffer, g.index.buffer, g.normals.buffer, g.uvs.buffer]);
+    const bytes = bvhJobBytes(g);
+    await gate().acquire(bytes);
+    let r;
+    try {
+        r = await requestWorker(w, { type: 'bvh', positions: g.positions, index: g.index, normals: g.normals, uvs: g.uvs, shape: shapeSeed > 0, seed: shapeSeed },
+            [g.positions.buffer, g.index.buffer, g.normals.buffer, g.uvs.buffer]);
+    } finally {
+        gate().release(bytes);
+    }
     if (r.shape) g.shape = r.shape;
     g.positions = r.positions;
     g.index = r.index;
@@ -964,5 +979,6 @@ export function abortStepImport() {
 export function disposeStepImporter() {
     pool?.terminate();
     pool = null;
+    bvhGate = null;   // builds of terminated workers never release their share
     session = null;
 }

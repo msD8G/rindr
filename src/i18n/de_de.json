@@ -1467,5 +1467,49 @@
         "gradientTop": "oben",
         "gradientAddHint": "Klick in den Verlauf fügt einen Farbstopp hinzu",
         "stopHint": "Doppelklick = Farbe · ziehen = verschieben · nach oben/unten wegziehen = entfernen"
+    },
+    "memory": {
+        "device": "Arbeitsspeicher des Geräts",
+        "deviceUnknown": "vom Browser nicht gemeldet",
+        "deviceGb": "{gb} GB",
+        "cancelled": "Laden abgebrochen",
+        "large": {
+            "title": "Sehr großes Modell",
+            "message": "„{name}“ hat {triangles} Dreiecke. Das braucht voraussichtlich mehr Arbeitsspeicher, als dieses Gerät dem Browser zur Verfügung stellt – die Darstellung kann langsam werden oder der Tab abstürzen.",
+            "triangles": "Dreiecke",
+            "needed": "Benötigt (geschätzt)",
+            "load": "Trotzdem laden"
+        },
+        "file": {
+            "title": "Sehr große Datei",
+            "message": "„{name}“ ist im Verhältnis zum Arbeitsspeicher dieses Geräts sehr groß. Schon das Einlesen kann den Browser an seine Grenze bringen.",
+            "size": "Dateigröße"
+        },
+        "limit": {
+            "title": "Modell zu groß für dieses Gerät"
+        },
+        "reduced": {
+            "title": "Qualität automatisch angepasst"
+        },
+        "safe": {
+            "title": "Sparsamer Modus",
+            "message": "„{name}“ wird diesmal mit weniger Arbeitsspeicher geöffnet: gröbere Tessellierung und weniger parallele Arbeit."
+        },
+        "crash": {
+            "title": "Letzter Ladevorgang abgebrochen",
+            "message": "Beim Öffnen von „{name}“ hat der Browser den Tab beendet – vermutlich reichte der Arbeitsspeicher nicht. Beim nächsten Öffnen arbeitet rindr sparsamer.",
+            "messageDrop": "Beim Öffnen von „{name}“ hat der Browser den Tab beendet – vermutlich reichte der Arbeitsspeicher nicht. Lege die Datei erneut ab: rindr öffnet sie dann sparsamer.",
+            "reopen": "Sparsam öffnen"
+        },
+        "fbxStatic": {
+            "title": "Ohne Animation geladen",
+            "message": "„{name}“ ist zu groß für den vollständigen FBX-Import im Browser. Geometrie, Materialien und Texturen sind da – Animationen, Skinning und Blend Shapes wurden nicht geladen."
+        }
+    },
+    "feature": {
+        "hqUnsupported": {
+            "title": "HQ nicht verfügbar",
+            "message": "Das Pathtracing braucht WebGPU. Dieser Browser oder diese Grafikkarte unterstützt es nicht – die Ansicht bleibt bei Default."
+        }
     }
 }

@@ -7,6 +7,8 @@
 // Materials become separate entries (source 'import') in the MaterialManager, textures are kept.
 import * as THREE from 'three/webgpu';
 import { boxUVs, buildGeometryBVHs, orientTrianglesIsolated, UV_TILE } from './step-importer.js';
+import { isBinaryFbx } from './fbx/fbx-parse.js';
+import { IMPORT } from './config.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
@@ -46,23 +48,54 @@ const baseName = path => path.split(/[\\/]/).pop().toLowerCase();
 /**
  * @param {{ name: string, main: Blob, files: {path: string, file: Blob}[], baseUrl?: string }} source
  *   main = main file, files = all supplied files (textures, .bin), baseUrl = fallback for relative paths
- * @param {{ renderer, materialManager, onStatus?, bvh?: boolean }} options
+ * @param {{ renderer, materialManager, onStatus?, bvh?: boolean, checkSize?: (info) => Promise<boolean> }} options
+ *   checkSize({ name, triangles }): asked once the triangle count is known, before the BVHs and the GPU upload
+ *   (the memory-heavy part) – false = cancel (AbortError)
  */
-export async function importMeshFile(source, { renderer, materialManager, onStatus = () => {}, bvh = false }) {
+export async function importMeshFile(source, { renderer, materialManager, onStatus = () => {}, bvh = false, checkSize = null }) {
     const t0 = performance.now();
     const ext = extOf(source.name);
     if (ext === 'ifc' || ext === 'ifczip') return (await import('./ifc/ifc-importer.js')).importIfc(source, { materialManager, onStatus, bvh });
     onStatus(t('import.mesh.reading', { name: source.name }));
-    const { object, scale, missing } = await load(source, ext, renderer, onStatus);
+    let result, missing;
+    // binary FBX: own lean reader in a worker (typed arrays only – three.js' FBXLoader needs several times the
+    // file size in JS heap, a large CAD export crashed the tab); animated/skinned files below
+    // IMPORT.fbxLoaderMaxBytes still go to FBXLoader (it reads animation, skinning, blend shapes)
+    let buffer = null;
+    if (ext === 'fbx') {
+        buffer = await source.main.arrayBuffer();
+        // ?fbxLoader (testing): always three.js' FBXLoader – comparison with the lean reader
+        if (isBinaryFbx(buffer) && !new URLSearchParams(globalThis.location?.search || '').has('fbxLoader')) {
+            // ?fbxLean (testing): the lean reader also for animated files
+            const fallback = buffer.byteLength <= IMPORT.fbxLoaderMaxBytes && !new URLSearchParams(globalThis.location?.search || '').has('fbxLean');
+            const lean = await readFbxLean(buffer, { fallback, onStatus });
+            if (lean.buffer) buffer = lean.buffer;   // animated, small enough: three.js' loader
+            else {
+                buffer = null;
+                ({ result, missing } = await convertLeanFbx(lean, source, materialManager));
+                if (lean.scene.hasAnimation || lean.scene.hasDeformers) result.warnings = ['fbxStatic'];
+            }
+        }
+    }
+    if (!result) {
+        const loaded = await load(source, ext, renderer, onStatus, buffer);
+        missing = loaded.missing;
+        const { object, scale } = loaded;
+        onStatus(t('import.mesh.buildingGeometries'));
+        result = convert(object, scale, materialManager, source.name);
+        // animated file: keep the source object as a "puppet" (animation.js drives it and copies every frame)
+        const clips = (object.animations || []).filter(c => c.duration > 0 && c.tracks.length);
+        // also without clips when there are morph targets (blend shapes): sliders in the properties panel
+        result.animation = clips.length || result.links.some(l => hasMorphs(l.mesh)) ? { root: object, clips, scale, links: result.links } : null;
+        delete result.links;
+    }
     if (missing.size) console.warn('[Import] Files not found:', [...missing]);
-    onStatus(t('import.mesh.buildingGeometries'));
-    const result = convert(object, scale, materialManager, source.name);
     if (!result.meshes.length) throw new Error(t('import.mesh.noFaces'));
-    // animated file: keep the source object as a "puppet" (animation.js drives it and copies every frame)
-    const clips = (object.animations || []).filter(c => c.duration > 0 && c.tracks.length);
-    // also without clips when there are morph targets (blend shapes): sliders in the properties panel
-    result.animation = clips.length || result.links.some(l => hasMorphs(l.mesh)) ? { root: object, clips, scale, links: result.links } : null;
-    delete result.links;
+    if (checkSize) {
+        let triangles = 0;
+        for (const g of result.geometries) triangles += g.index.length / 3;
+        if (!await checkSize({ name: source.name, triangles })) throw new DOMException('Import cancelled', 'AbortError');
+    }
     const t1 = performance.now();
     if (bvh) await buildGeometryBVHs(result.geometries, onStatus);
     let triangles = 0;
@@ -91,7 +124,9 @@ export class MissingFilesError extends Error {
 
 // --- Loading ---
 
-async function load(source, ext, renderer, onStatus = () => {}) {
+// Loading manager that resolves the files a model references (textures, .bin) against the supplied files or the
+// model's URL; missing = references that could not be resolved, idle() = all started loads done.
+function createResolver(source) {
     // Resolve supplied files by relative path or file name (FBX often contains absolute Windows paths)
     const byPath = new Map(), byName = new Map();
     for (const { path, file } of source.files) {
@@ -113,9 +148,12 @@ async function load(source, ext, renderer, onStatus = () => {}) {
             urls.push(u);
             return u;
         }
-        // loaded via URL (?model=): relative to the model file – missing only if that fails (onError)
+        // loaded via URL (?model=): relative to the model file – missing only if that fails (onError). Absolute local
+        // paths of the authoring machine (N:\…, file:, \\server\…) → the file name next to the model (the browser
+        // refuses local files: "Not allowed to load local resource")
         if (source.baseUrl) {
-            const href = new URL(url, new URL(source.baseUrl, location.href)).href;
+            const local = /^([a-z]:[\\/]|file:|\\\\|\/\/)/i.test(url);   // also //server/… (UNC with slashes)
+            const href = new URL(local ? encodeURIComponent(url.split(/[\\/]/).pop()) : url, new URL(source.baseUrl, location.href)).href;
             fromServer.set(href, url);
             return href;
         }
@@ -125,14 +163,23 @@ async function load(source, ext, renderer, onStatus = () => {}) {
     manager.onError = href => { if (fromServer.has(href)) missing.add(fromServer.get(href)); };
     // Wait until all textures are loaded (FBX returns the object before that)
     let started = false;
-    const idle = new Promise(resolve => {
+    const loaded = new Promise(resolve => {
         manager.onStart = () => { started = true; };
         manager.onLoad = resolve;
     });
+    return {
+        manager, missing, byPath, byName,
+        idle: () => (started ? loaded : Promise.resolve()),
+        // images are decoded by then; release the blob URLs
+        release: () => setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000),
+    };
+}
 
+async function load(source, ext, renderer, onStatus = () => {}, preloaded = null) {
+    const { manager, missing, byPath, byName, idle, release } = createResolver(source);
     try {
         const { GLTFLoader, FBXLoader, DRACOLoader, KTX2Loader, MeshoptDecoder, STLLoader, PLYLoader } = await loadLibs();
-        const buffer = await source.main.arrayBuffer();
+        const buffer = preloaded ?? await source.main.arrayBuffer();
         // dropped .gltf: check the external buffers first (GLTFLoader would fail with an unclear error)
         if (ext === 'gltf' && !source.baseUrl) checkGltfFiles(buffer, byPath, byName);
         let object, scale;
@@ -187,11 +234,10 @@ async function load(source, ext, renderer, onStatus = () => {}) {
             await collectUnlit(gltf, object);
             scale = 1000;   // m -> mm
         }
-        if (started) await idle;
+        await idle();
         return { object, scale, missing };
     } finally {
-        // images are decoded by then; release the blob URLs
-        setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000);
+        release();
     }
 }
 
@@ -295,24 +341,8 @@ function convert(object, scale, materialManager, fileName = '') {
     const meshes = [];
     const links = [];   // per mesh entry: source mesh + instance (animation)
     const geometryCache = new Map();   // geometry.uuid:group -> index in geometries
-    const materialIds = new Map();     // source material -> material id
     let instance = 0;
-    let unnamed = 0;
-
-    const materialId = src => {
-        if (!src) src = DEFAULT_MATERIAL;
-        let id = materialIds.get(src);
-        if (!id) {
-            const def = convertMaterial(src, scale);
-            if (src === DEFAULT_MATERIAL) def.name = t('import.mesh.defaultMaterial');
-            if (!def.name) def.name = t('import.mesh.unnamedMaterial', { number: ++unnamed });
-            // origin: file + order in the file – stable, so scene states find the material again; with the file
-            // name, materials of different models no longer collide (previously all were import:0, import:1 …)
-            id = materialManager.create({ ...def, source: 'import', origin: `import:${fileName}:${materialIds.size}` }, { silent: true }).def.id;
-            materialIds.set(src, id);
-        }
-        return id;
-    };
+    const materialId = materialIdFactory(materialManager, scale, fileName);
 
     const visit = (o, parent) => {
         if (!o.visible || o.isLight || o.isCamera) return;
@@ -372,6 +402,160 @@ function convert(object, scale, materialManager, fileName = '') {
     visit(object, -1);
     for (const g of geometries) delete g.sourceVertex;   // not to the BVH worker
     return { nodes, geometries, meshes, links };
+}
+
+// Source material → id of an import material in the MaterialManager (once per source material)
+function materialIdFactory(materialManager, scale, fileName) {
+    const materialIds = new Map();     // source material -> material id
+    let unnamed = 0;
+    return src => {
+        if (!src) src = DEFAULT_MATERIAL;
+        let id = materialIds.get(src);
+        if (!id) {
+            const def = convertMaterial(src, scale);
+            if (src === DEFAULT_MATERIAL) def.name = t('import.mesh.defaultMaterial');
+            if (!def.name) def.name = t('import.mesh.unnamedMaterial', { number: ++unnamed });
+            // origin: file + order in the file – stable, so scene states find the material again; with the file
+            // name, materials of different models no longer collide (previously all were import:0, import:1 …)
+            id = materialManager.create({ ...def, source: 'import', origin: `import:${fileName}:${materialIds.size}` }, { silent: true }).def.id;
+            materialIds.set(src, id);
+        }
+        return id;
+    };
+}
+
+// --- lean FBX (fbx/fbx-parse.js in a worker) ---
+
+/**
+ * Read a binary FBX in a worker. Resolves { scene, geometries } – or { buffer } (the file handed back) when it is
+ * animated / has deformers and `fallback` allows three.js' loader for it.
+ */
+function readFbxLean(buffer, { fallback, onStatus }) {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('./fbx/fbx-worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+            if (data.type === 'progress') { onStatus(t('import.mesh.buildingGeometries'), data.done / data.total); return; }
+            worker.terminate();
+            if (data.type === 'error') reject(new Error(data.message));
+            else if (data.type === 'fallback') resolve({ buffer: data.buffer });
+            else resolve({ scene: data.scene, geometries: data.geometries });
+        };
+        worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'FBX worker failed')); };
+        worker.postMessage({ buffer, fallback }, [buffer]);
+    });
+}
+
+// FBX RotationOrder (extrinsic eXYZ …) → three.js (intrinsic) Euler order
+const FBX_EULER = ['ZYX', 'YZX', 'XZY', 'ZXY', 'YXZ', 'XYZ'];
+
+// Local matrix of an FBX model (FBX SDK: T · Roff · Rp · Rpre · R · Rpost⁻¹ · Rp⁻¹ · Soff · Sp · S · Sp⁻¹)
+function fbxLocalMatrix(tr) {
+    const m = new THREE.Matrix4(), tmp = new THREE.Matrix4();
+    const trans = v => new THREE.Matrix4().makeTranslation(v?.[0] || 0, v?.[1] || 0, v?.[2] || 0);
+    const rot = (v, order) => new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(...(v || [0, 0, 0]).map(THREE.MathUtils.degToRad), order));
+    const pre = rot(tr.preRotation, 'ZYX'), r = rot(tr.rotation, FBX_EULER[tr.rotationOrder] || 'ZYX'), post = rot(tr.postRotation, 'ZYX').invert();
+    const rp = trans(tr.rotationPivot), sp = trans(tr.scalingPivot);
+    const s = tr.scale ? new THREE.Matrix4().makeScale(...tr.scale) : new THREE.Matrix4();
+    m.copy(trans(tr.translation)).multiply(trans(tr.rotationOffset)).multiply(rp).multiply(pre).multiply(r).multiply(post)
+        .multiply(tmp.copy(rp).invert()).multiply(trans(tr.scalingOffset)).multiply(sp).multiply(s).multiply(tmp.copy(sp).invert());
+    return m;
+}
+
+/** Lean FBX result → { nodes, geometries, meshes } like convert(); materials as three.js Phong/Lambert like FBXLoader */
+async function convertLeanFbx({ scene, geometries: parts }, source, materialManager) {
+    const scale = 10 * (scene.unitScaleFactor || 1);   // cm × UnitScaleFactor → mm
+    const toMm = new THREE.Matrix4().makeScale(scale, scale, scale);
+    const { manager, missing, idle, release } = createResolver(source);
+    const embedded = [];
+    try {
+        // textures: embedded ones from their bytes, the others by file name (supplied files / next to the model)
+        const loader = new THREE.TextureLoader(manager);
+        const textures = scene.textures.map(tx => {
+            let url = tx.file.replace(/\\/g, '/');
+            if (tx.content) { url = URL.createObjectURL(new Blob([tx.content])); embedded.push(url); }
+            if (!url) return null;
+            const texture = loader.load(url);
+            texture.name = tx.name;
+            texture.wrapS = tx.wrapU === 1 ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+            texture.wrapT = tx.wrapV === 1 ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+            if (tx.uvScaling) texture.repeat.set(tx.uvScaling[0], tx.uvScaling[1]);
+            if (tx.uvTranslation) texture.offset.set(tx.uvTranslation[0], tx.uvTranslation[1]);
+            return texture;
+        });
+        const srgb = v => (Array.isArray(v) ? THREE.ColorManagement.colorSpaceToWorking(new THREE.Color().fromArray(v), THREE.SRGBColorSpace) : undefined);
+        const SLOTS = { DiffuseColor: 'map', 'Maya|TEX_color_map': 'map', Bump: 'bumpMap', NormalMap: 'normalMap', 'Maya|TEX_normal_map': 'normalMap',
+            EmissiveColor: 'emissiveMap', TransparentColor: 'alphaMap', TransparencyFactor: 'alphaMap', 'Maya|TEX_ao_map': 'aoMap' };
+        const materials = scene.materials.map(m => {
+            const p = m.props;
+            const params = {};
+            const color = srgb(p.Diffuse) || srgb(p.DiffuseColor);
+            if (color) params.color = color;
+            const emissive = srgb(p.Emissive) || srgb(p.EmissiveColor);
+            if (emissive) params.emissive = emissive;
+            if (p.EmissiveFactor !== undefined) params.emissiveIntensity = Number(p.EmissiveFactor);
+            // transparency like FBXLoader / Blender: 1 − TransparencyFactor, else Opacity, else opaque
+            let opacity = 1 - (p.TransparencyFactor !== undefined ? Number(p.TransparencyFactor) : 0);
+            if (opacity === 1 || opacity === 0) opacity = p.Opacity !== undefined ? Number(p.Opacity) : 1;
+            params.opacity = opacity;
+            if (opacity < 1) params.transparent = true;
+            if (p.Shininess !== undefined) params.shininess = Number(p.Shininess);
+            if (p.BumpFactor !== undefined) params.bumpScale = Number(p.BumpFactor);
+            for (const [rel, ti] of Object.entries(m.maps)) {
+                const slot = SLOTS[rel], tex = textures[ti];
+                if (!slot || !tex) continue;
+                if (slot === 'map' || slot === 'emissiveMap') tex.colorSpace = THREE.SRGBColorSpace;
+                params[slot] = tex;
+            }
+            const material = m.shading === 'lambert' ? new THREE.MeshLambertMaterial(params) : new THREE.MeshPhongMaterial(params);
+            material.name = m.name;
+            return material;
+        });
+        await idle();
+
+        const materialId = materialIdFactory(materialManager, scale, source.name);
+        // nodes: one root for several top-level models (like FBXLoader's scene group), parents before children
+        const top = scene.models.filter(m => m.parent < 0).length;
+        const nodes = [];
+        const base = top > 1 ? (nodes.push({ name: '', parent: -1 }), 1) : 0;
+        const up = new THREE.Matrix4();
+        if (scene.upAxis === 2) up.makeRotationX(-Math.PI / 2);   // Z up → Y up (as FBXLoader)
+        const world = [], visible = [];
+        const geometries = [], meshes = [];
+        const cache = new Map();   // lean geometry → our geometry indices (models sharing a geometry = instances)
+        let instance = 0;
+        scene.models.forEach((m, i) => {
+            const parentWorld = m.parent >= 0 ? world[m.parent] : up;
+            world[i] = new THREE.Matrix4().multiplyMatrices(parentWorld, fbxLocalMatrix(m.transform));
+            visible[i] = m.visible && (m.parent < 0 || visible[m.parent]);
+            nodes.push({ name: m.name, parent: m.parent >= 0 ? base + m.parent : (base ? 0 : -1) });
+            if (!visible[i]) return;
+            const node = base + i;
+            for (const lg of m.geometries) {
+                let gis = cache.get(lg);
+                if (!gis) {
+                    const worldScale = world[i].getMaxScaleOnAxis() * scale;
+                    gis = (parts[lg] || []).map(part => {
+                        let normals = part.normals;
+                        if (!normals) computeNormals(part.positions, part.index, normals = new Float32Array(part.positions.length));
+                        const uvs = part.uvs || boxUVs(part.positions, normals, UV_TILE / Math.max(worldScale, 1e-12));
+                        geometries.push({ positions: part.positions, normals, index: part.index, uvs, name: m.name });
+                        return { gi: geometries.length - 1, material: part.material };
+                    });
+                    cache.set(lg, gis);
+                }
+                const matrix = new THREE.Matrix4().multiplyMatrices(toMm, world[i]).toArray();
+                for (const { gi, material } of gis) {
+                    const src = m.materials.length ? materials[m.materials[material] ?? m.materials[0]] : null;
+                    meshes.push({ geometry: gi, matrix, materialId: materialId(src), name: m.name, node, instance, key: `${instance}/${material}` });
+                }
+                instance++;
+            }
+        });
+        return { result: { nodes, geometries, meshes, animation: null }, missing };
+    } finally {
+        release();
+        setTimeout(() => embedded.forEach(u => URL.revokeObjectURL(u)), 1000);
+    }
 }
 
 const hasMorphs = mesh => !!mesh.geometry?.morphAttributes?.position?.length && !!mesh.morphTargetDictionary;
