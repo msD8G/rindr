@@ -51,11 +51,13 @@ export class MaterialThumbs extends EventTarget {
      * Events: 'ready' (detail: { key, url } – url null if rendering failed), 'reload' (all images are stale)
      * @param {THREE.WebGPURenderer} renderer
      * @param {() => { texture: THREE.Texture, intensity: number, rotation: number }} getEnvironment  current one
+     * @param {(material, radius) => THREE.Mesh | null} [special]  a mesh to show instead of the sphere (cloud volume)
      */
-    constructor(renderer, getEnvironment) {
+    constructor(renderer, getEnvironment, special = null) {
         super();
         this.renderer = renderer;
         this.getEnvironment = getEnvironment;
+        this.special = special;
         this.urls = new Map();      // key -> object URL | null (failed)
         this.stale = new Set();     // keys whose image is from before reload() (shown until the new one is there)
         this.generation = 0;
@@ -174,9 +176,12 @@ export class MaterialThumbs extends EventTarget {
     async _render(job, generation) {
         const s = this._setup ??= this._createSetup();
         const material = job.material();
+        const special = this.special?.(material, RADIUS) ?? null;
         try {
             const r = this.renderer;
             s.mesh.material = material;
+            s.mesh.visible = !special;
+            if (special) s.scene.add(special);
             const env = this.getEnvironment();
             s.scene.environment = env.texture;
             s.scene.environmentIntensity = env.intensity;
@@ -195,7 +200,7 @@ export class MaterialThumbs extends EventTarget {
             const images = [];
             for (const wall of walls) {
                 s.backdrop.material = wall;
-                images.push(await this._renderOnce(s, material));
+                images.push(await this._renderOnce(s, material, special?.userData));
             }
             const bottomUp = !!r.backend.isWebGLBackend;
             const rgb = traced
@@ -207,6 +212,8 @@ export class MaterialThumbs extends EventTarget {
             if (job.persist && generation === this.generation) this._db.then(db => db && dbPut(db, job.key, blob));
             return URL.createObjectURL(blob);
         } finally {
+            if (special) { s.scene.remove(special); special.material.dispose(); }
+            s.mesh.visible = true;
             if (job.dispose) material.dispose();
         }
     }
@@ -215,13 +222,16 @@ export class MaterialThumbs extends EventTarget {
     // offset): set to 0.4 radius for the render – absorption over a readable distance (the presets' few mm hardly
     // tinted, the diameter turned tinted glass black). Only around the synchronous render: the scene's own material
     // must not show it in the viewport (a uniform, no recompile)
-    async _renderOnce(s, material) {
+    // hooks: beforeRender/afterRender of a special mesh (cloud preview: its own light), only around this render
+    async _renderOnce(s, material, hooks = null) {
         const r = this.renderer, saved = save(r), thickness = material.thickness;
         prepare(r, s.target);
         if (material.transmission > 0) material.thickness = THICKNESS;
+        hooks?.beforeRender?.();
         try {
             r.render(s.scene, s.camera);
         } finally {
+            hooks?.afterRender?.();
             material.thickness = thickness;
             restore(r, saved);
         }
@@ -245,7 +255,8 @@ export class MaterialThumbs extends EventTarget {
         scene.add(mesh);
         const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 1000);
         camera.position.set(0, 0, cameraDistance());
-        const target = new THREE.RenderTarget(RENDER_SIZE, RENDER_SIZE, { type: THREE.HalfFloatType, depthBuffer: true });
+        // stencil like the canvas: the cloud volume copies the depth (clouds.js, formats must match)
+        const target = new THREE.RenderTarget(RENDER_SIZE, RENDER_SIZE, { type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: true });
         return { scene, mesh, camera, target, backdrop, checker, plain, black, white };
     }
 }

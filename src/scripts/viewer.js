@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './view-cube.js';
-import { ContourPass } from './contour.js';
+import { ContourPass } from './materials/contour.js';
 import { ScreenFade } from './screen-fade.js';
 import { HdriEditor } from './hdri/hdri-editor.js';
 import { HdriRenderService } from './hdri/hdri-service.js';
@@ -13,6 +13,7 @@ import { importMeshFile, MissingFilesError, MESH_EXTENSIONS } from './mesh-impor
 import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
 import { MaterialThumbs } from './material-thumbs.js';
+import { CloudSystem } from './materials/clouds.js';
 import { GraphApplier } from './graph-apply.js';
 import { NodeEditor } from './node-editor.js';
 import { createStudioEnvironment, renderStudioEnvironment, loadHdri, listHdris, VignetteBackground } from './environment.js';
@@ -461,6 +462,13 @@ function drawEnvironmentPreview(canvas, tex, exposure, rotation) {
     ctx.putImageData(out, 0, 0);
 }
 
+// cloud material (clouds.js): one volume per cloud material over the meshes that carry it (before the environment:
+// apply() hands it the light)
+const clouds = new CloudSystem(scene, () => [rootGroup, ...extraModels.map(x => x.root)], () => (ground.enabled ? ground.groundY : null), () => lightsGroup.children);
+clouds.onChange = () => { pathTracing.updateTransforms(); pathTracing.updateMaterials(); markShadowsDirty(); };
+// override passes (contour, contact shadow, …) leave the boxes out; Basic (clay, defined further down) keeps them
+clouds.attach(renderer, () => { try { return clayMaterial; } catch { return null; } });
+
 // HDRI editor (hdri/, docs/hdri-editor.md): own procedural HDRIs, rendered in a worker
 const CUSTOM_HDRI = 'editor:';
 const hdriService = new HdriRenderService();
@@ -569,6 +577,7 @@ const environment = {
     apply({ geometry = false, params = false } = {}) {
         this.onChange?.();   // preview in the environment panel (texture, intensity, light boost, rotation)
         scene.environment = this.on ? this.texture : null;
+        clouds.setEnvironment(this.on ? this.texture : studioTexture, this.on ? this.intensity * this.lightBoost : 0.8, this.on ? scene.environmentRotation.y : 0);
         const showHdri = this.on && this.background && !this.matte;
         scene.background = this.matte || (showHdri ? this.texture : vignette.texture);
         // light = intensity × boost, the visible HDRI only intensity
@@ -1240,6 +1249,8 @@ const graphApplier = new GraphApplier(renderer, { onBaked: () => pathTracing.upd
 materialManager.onApply = entry => graphApplier.apply(entry);
 materialManager.addEventListener('change', () => pathTracing.updateMaterials());
 materialManager.addEventListener('update', () => pathTracing.updateMaterials());
+materialManager.addEventListener('change', () => clouds.invalidate());
+materialManager.addEventListener('update', () => clouds.invalidate());
 // edited material (alpha map, side …) can change the shadow; assignments are seen by the batcher's comparison
 materialManager.addEventListener('update', () => markShadowsDirty());
 const isModelEntry = e => e && (e.kind === 'node' || e.kind === 'model' || e.kind === 'surface' || e.kind === 'selection');
@@ -1255,7 +1266,9 @@ const materialPanel = new MaterialPanel(document.getElementById('materials'), ma
     // rendered previews under the current environment, as bright as in the scene (switched off: the studio)
     thumbs: new MaterialThumbs(renderer, () => (environment.on
         ? { texture: environment.texture, intensity: environment.intensity * environment.lightBoost, rotation: scene.environmentRotation.y }
-        : { texture: studioTexture, intensity: 0.8, rotation: 0 })),
+        : { texture: studioTexture, intensity: 0.8, rotation: 0 }),
+    // the cloud material has no surface: its preview is a cloud volume around the sphere
+    (material, radius) => clouds.previewFor(material, radius)),
     // select all meshes with this material (multi-selection, "assign" replaces it on all of them)
     onSelectUsers: id => {
         const entry = materialManager.get(id);
@@ -2297,7 +2310,7 @@ const shaftBounds = new THREE.Sphere(new THREE.Vector3(), 0);   // whole scene (
 // volumetric light shafts (volume-shafts.js): scene, camera and what stays out of the depth passes
 lens.sceneContext = () => ({
     scene, camera, bounds: rootGroup ? shaftBounds : null, modelSize: environment.modelSize,
-    hide: splatMesh ? [splatMesh] : [], ground: ground.enabled ? ground.mesh : null,
+    hide: splatMesh ? [splatMesh] : [], ground: ground.enabled ? ground.mesh : null, clouds,
 });
 function updateShaftSource() {
     const dir = environment.on ? brightestDirection(environment.texture) : null;
@@ -4348,7 +4361,7 @@ if (MODEL_FILE && !(crashed?.url && crashed.name === MODEL_FILE)) {
 
 // Debug access for automated tests + fps/memory/polygon display (only with ?debug in the URL)
 if (new URLSearchParams(location.search).has('debug')) {
-    globalThis.__viewer = { getSplats: () => splatMesh, screenFade, flyToDirection, contours, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
+    globalThis.__viewer = { clouds, getSplats: () => splatMesh, screenFade, flyToDirection, contours, openBcfFile, loadBcf, applyBcfViewpoint, captureBcfViewpoint, loadSplats, lens, contactShadow, animations, openSceneFile, pickHit, raycaster, exportFrame, brightestDirection, addModel, removeExtraModels, extraModels, graphApplier, highlighter, scene, camera, controls, renderer, pathTracing, setup, sceneGraph, getRootGroup: () => rootGroup, getSelection: () => selection, getHovered: () => hovered, transformer, slicer, ground, environment, materialManager, materialPanel, nodeEditor, history, undoRedo, dof, frameObject, openModel, getModel: () => model, isLoading: () => !!loading, captureState: () => captureState(sceneStateContext), restoreScene, whenLoaded: () => loadLoop };
 }
 
 // --- Resize ---
@@ -4475,6 +4488,7 @@ renderer.setAnimationLoop(() => {
     updateFlight();
     updateSplatSpin(frameStart);
     exploder.update(frameStart);
+    clouds.update(camera);
     controls.update();
     applyCameraRoll();
     viewCube.update(camera);

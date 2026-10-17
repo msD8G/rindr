@@ -72,6 +72,18 @@ export class RindrMaterial extends THREE.MeshPhysicalNodeMaterial {
     }
 
     /**
+     * Cloud (clouds.js): density (0 = off), colour of the scattered light (sRGB hex), puff (share of the size the
+     * cloud swells over the shape). The meshes themselves are not drawn – a volume per cloud material stands in for
+     * them (raster: invisible material; path tracer: left out of the scene, rindr-cloud in astro.config.mjs).
+     */
+    setCloud(density, color, puff) {
+        const on = density > 0;
+        this.visible = !on;
+        if (on) this.userData.cloud = { density, color, puff };
+        else delete this.userData.cloud;
+    }
+
+    /**
      * Glowing marble veins inside the object (marble.js): intensity (0 = off), colour (sRGB hex), scale = scene
      * units per pattern unit (mm for CAD models). Raster: added to the emission; path tracer: stand-in fields.
      * Not batched (render-batcher.js): the pattern lives in object space.
@@ -164,6 +176,8 @@ export class RindrMaterial extends THREE.MeshPhysicalNodeMaterial {
         this._sssColor.value.copy(source._sssColor.value);
         this.marble = false;
         this.setMarble(source._marbleIntensity.value * (source.marble ? 1 : 0), '#' + source._marbleColor.value.getHexString(), source._marbleScale.value);
+        const cloud = source.userData.cloud;
+        this.setCloud(cloud?.density ?? 0, cloud?.color ?? '#ffffff', cloud?.puff ?? 0.1);
         return this;
     }
 }

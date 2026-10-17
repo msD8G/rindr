@@ -450,6 +450,11 @@ function fadeOut(node) {
 export function swatch(params) {
     // subsurface: the colour of the scattering shows (toon.js mixes it the same way)
     const c = (params.subsurface ?? 0) > 0.5 ? (params.subsurfaceColor || '#ffffff') : (params.color || '#808080');
+    // cloud: soft white puffs (until the rendered preview is there)
+    if ((params.cloud ?? 0) > 0) {
+        const k = params.cloudColor || '#ffffff';
+        return `radial-gradient(circle at 35% 55%, ${k} 0 22%, transparent 34%), radial-gradient(circle at 62% 45%, ${k} 0 26%, transparent 38%), radial-gradient(circle at 50% 66%, ${k}cc 0 30%, transparent 44%)`;
+    }
     // glowing marble: dark stone with the vein colour glowing inside
     if ((params.marble ?? 0) > 0) {
         const m = params.marbleColor || '#33ff73';

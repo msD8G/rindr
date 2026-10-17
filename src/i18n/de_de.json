@@ -141,7 +141,10 @@
             "flat": "Flach (ohne Licht)",
             "contour": "Kontur",
             "contourColor": "Konturfarbe",
-            "contourWidth": "Konturbreite (px)"
+            "contourWidth": "Konturbreite (px)",
+            "cloud": "Wolke (Dichte)",
+            "cloudColor": "Wolkenfarbe",
+            "cloudPuff": "Aufquellen"
         },
         "paramGroups": {
             "base": "Basis",
@@ -151,7 +154,8 @@
             "effects": "Effekte",
             "subsurface": "Subsurface Scattering",
             "marble": "Leuchtmarmor",
-            "style": "Stil"
+            "style": "Stil",
+            "cloud": "Wolke"
         },
         "categories": {
             "metal": "Metall",
@@ -161,7 +165,8 @@
             "subsurface": "Transluzent (SSS)",
             "marble": "Leuchtmarmor",
             "other": "Sonstige",
-            "style": "Stil"
+            "style": "Stil",
+            "special": "Spezial"
         },
         "presets": {
             "metal-chrome": "Chrom",
@@ -195,6 +200,7 @@
             "ceramic-white": "Keramik weiß",
             "emissive-white": "Leuchtend weiß",
             "emissive-neon-green": "Neon-Grün leuchtend",
+            "cloud-white": "Wolke",
             "sss-jelly": "Gelee",
             "sss-wax": "Wachs",
             "sss-slime": "Schleim",

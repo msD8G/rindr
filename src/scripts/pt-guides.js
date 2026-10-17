@@ -188,6 +188,15 @@ export class GuideKernel {
 
                         }
 
+                        // cloud volume box (clouds.js): no surface – the guides show what lies behind (the box's faces
+                        // made the denoiser draw a bright rectangle)
+                        if ( materialInfo.fogVolume == 3 ) {
+
+                            ray.origin = ${ offsetRayOriginFunc }( ray.origin + ray.direction * hit.dist, ray.direction, hit.normal );
+                            continue;
+
+                        }
+
                         materialInfo.color *= objectInfo.color.rgb;
                         materialInfo.opacity *= objectInfo.color.a;
 

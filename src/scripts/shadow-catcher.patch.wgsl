@@ -165,7 +165,8 @@
 									scRayB.direction = scDirB;
 									scRayB.maxDist = 0.0;
 									var scHitB: ${ raycastOutput };
-									if ( ${ raycastFirstHitFn }( scRayB, &scHitB ) && ( *materials )[ transforms[ scHitB.objectIndex ].materialIndex ].matte == 0 ) {
+									if ( ${ raycastFirstHitFn }( scRayB, &scHitB ) && ( *materials )[ transforms[ scHitB.objectIndex ].materialIndex ].matte == 0
+										&& ( *materials )[ transforms[ scHitB.objectIndex ].materialIndex ].fogVolume != 3 ) {
 
 										let scAlbedo = min( ${ sampleEnvColor }( scLookup ).rgb * ${ __SC.bounce }.y, vec3f( 0.9 ) );
 										let scGain = select( 1.0, ${ __SC.bounce }.x, bounce == 0u );

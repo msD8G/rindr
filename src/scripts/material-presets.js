@@ -4,7 +4,7 @@
 // category labels from materials.categories.<category>.
 import { t } from './i18n.js';
 
-export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'subsurface', 'marble', 'style', 'other'];
+export const PRESET_CATEGORIES = ['metal', 'plastic', 'paint', 'glass', 'subsurface', 'marble', 'style', 'special', 'other'];
 
 /** Display name of a preset (also the default name of a material created from it) */
 export const presetName = libraryId => t(`materials.presets.${libraryId}`);
@@ -66,6 +66,9 @@ export const MATERIAL_PRESETS = [
     { libraryId: 'outline-black', category: 'style', params: { color: '#141414', metalness: 0, roughness: 1, specularIntensity: 0, flat: 1, contour: 1, contourColor: '#ffffff', contourWidth: 2 } },
 
     // --- other ---
+    // special: the object as a fluffy cloud (clouds.js – volume, puffs out over the shape)
+    { libraryId: 'cloud-white', category: 'special', params: { color: '#ffffff', metalness: 0, roughness: 1, cloud: 1, cloudColor: '#ffffff', cloudPuff: 0.05 } },
+
     { libraryId: 'ceramic-white', category: 'other', params: { color: '#f4f3ef', metalness: 0, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.08 } },
     { libraryId: 'emissive-white', category: 'other', params: { color: '#ffffff', metalness: 0, roughness: 0.5, emissive: '#ffffff', emissiveIntensity: 5 } },
     { libraryId: 'emissive-neon-green', category: 'other', params: { color: '#39ff14', metalness: 0, roughness: 0.5, emissive: '#39ff14', emissiveIntensity: 5 } },

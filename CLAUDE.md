@@ -63,7 +63,7 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 | `docs/camera-lens.md` | Kamera, Tiefenschärfe, Fisheye, Objektiv-Effekte – `dof.js`, `fisheye.js`, `lens-effects.js`, `volume-shafts.js`, Kamera-Teile von `viewer.js`/`properties.js`. |
 | `docs/hdri-editor.md` | HDRI-Editor – eigene prozedurale HDRIs (`src/scripts/hdri/`): Modell, Generator, Pins, Sonne & Himmel, Export, Fenster. |
 | `docs/environment.md` | Umgebung, HDRI, Boden – `environment.js`, `ground.js`, `background-dome.js`, `contact-shadow.js`, `shadow-catcher.js`. |
-| `docs/materials.md` | Materialien und Node-Editor – `material-*.js`, `graph-apply.js`, `node-editor.js`. |
+| `docs/materials.md` | Materialien und Node-Editor – `material-*.js`, `graph-apply.js`, `node-editor.js`; besondere Materialien in `src/scripts/materials/` (Toon/RindrMaterial, Konturen, Leuchtmarmor, Wolke). |
 | `docs/scene-state.md` | Szenen-Zustand, Speichern/Laden, Assets, Rückgängig – `scene-state.js`, `assets.js`, `history.js`, Teile von `viewer.js`. |
 | `docs/ui.md` | Oberfläche und Bedienung – Scene Graph, Eigenschaften/Gizmo, Leiste, Drop-Fläche, mehrere Modelle, Menüs, Dialoge, Tasten, Auswahl. |
 | `docs/export-ki.md` | Bild-Export und KI-Rendering – `image-export.js`, `png-encode.js`, `ki-render.js`, `ki-gemini.js`. |
@@ -122,6 +122,9 @@ Fertiges HDRI laden oder im Editor eigene Varianten der prozeduralen HDRIs anleg
 [X] Toon (farbig), „Weiß, Kontur schwarz“, „Schwarz, Kontur weiß“ (flache Fläche ohne Abstufung + Gegenkontur, 2 px, Konturen auch über HQ) und Neon-Grün leuchtend in der Bibliothek (Details: `docs/materials.md`, `docs/rendering.md`)
 [X] Gelee, Wachs und Schleim mit Subsurface Scattering (schnelle Näherung nach Barré-Brisebois, Raster + HQ; Details: `docs/materials.md`)
 [X] Leuchtmarmor (grün, blau, bernstein): leuchtende Fraktal-Adern in der Tiefe, Raster + HQ gleich (eigene Umsetzung, Shadertoy nur als Inspiration)
+
+### SPEZIAL-MATERIALIEN
+[X] Wolke: das Objekt als fluffige Wolke – quillt über die Form, Raster per Raymarching, HQ als echtes Volumen (Details: `docs/materials.md`)
 
 ### BODEN
 [X] Bodenspiegelung (Stärke, Unschärfe) und Regenwetter mit prozeduralen Pfützen – nur in HQ (Details: `docs/environment.md`)

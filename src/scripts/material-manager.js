@@ -10,7 +10,7 @@ import { uniform, screenCoordinate, fract, dot, vec2 } from 'three/tsl';
 import { MATERIAL_PRESETS, presetName } from './material-presets.js';
 import { createImportGraph, IMPORT_SLOTS } from './material-graph.js';
 import { t } from './i18n.js';
-import { RindrMaterial } from './toon.js';
+import { RindrMaterial } from './materials/toon.js';
 
 // Parameter description (also for the editor panel). Labels: materials.params.<key>,
 // group labels: materials.paramGroups.<group> (group = id, also used for the collapse state)
@@ -48,6 +48,10 @@ export const PARAMS = [
     { key: 'contour', type: 'number', min: 0, max: 1, default: 0, group: 'style' },
     { key: 'contourColor', type: 'color', default: '#000000', group: 'style' },
     { key: 'contourWidth', type: 'number', min: 0.5, max: 6, default: 1.5, group: 'style' },
+    // cloud (clouds.js): density 0 = off; puff = how far the cloud swells over the shape (share of its size)
+    { key: 'cloud', type: 'number', min: 0, max: 5, default: 0, group: 'cloud' },
+    { key: 'cloudColor', type: 'color', default: '#ffffff', group: 'cloud' },
+    { key: 'cloudPuff', type: 'number', min: 0.02, max: 0.25, default: 0.05, group: 'cloud' },
 ];
 const PARAM_BY_KEY = Object.fromEntries(PARAMS.map(p => [p.key, p]));
 
@@ -450,6 +454,7 @@ function applyParams(material, params) {
     material.transparent = p.opacity < 1;
     material.setSubsurface(p.subsurface, p.subsurfaceColor, p.subsurfaceRadius);   // after the physical params
     material.setMarble(p.marble, p.marbleColor, p.marbleScale);
+    material.setCloud(p.cloud, p.cloudColor, p.cloudPuff);
     material.toon = p.toon > 0;
     material.flat = p.flat > 0;
     if (material.flat) {

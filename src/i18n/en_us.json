@@ -141,7 +141,10 @@
             "flat": "Flat (unlit)",
             "contour": "Contour",
             "contourColor": "Contour colour",
-            "contourWidth": "Contour width (px)"
+            "contourWidth": "Contour width (px)",
+            "cloud": "Cloud (density)",
+            "cloudColor": "Cloud colour",
+            "cloudPuff": "Puff"
         },
         "paramGroups": {
             "base": "Base",
@@ -151,7 +154,8 @@
             "effects": "Effects",
             "subsurface": "Subsurface scattering",
             "marble": "Glowing marble",
-            "style": "Style"
+            "style": "Style",
+            "cloud": "Cloud"
         },
         "categories": {
             "metal": "Metal",
@@ -161,7 +165,8 @@
             "subsurface": "Translucent (SSS)",
             "marble": "Glowing marble",
             "other": "Other",
-            "style": "Style"
+            "style": "Style",
+            "special": "Special"
         },
         "presets": {
             "metal-chrome": "Chrome",
@@ -195,6 +200,7 @@
             "ceramic-white": "Ceramic white",
             "emissive-white": "Emissive white",
             "emissive-neon-green": "Neon green (emissive)",
+            "cloud-white": "Cloud",
             "sss-jelly": "Jelly",
             "sss-wax": "Wax",
             "sss-slime": "Slime",

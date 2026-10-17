@@ -35,6 +35,7 @@
 													var gsT = vec3f( 1.0 );
 													var gsTravel = 0.0;
 													var gsBlocked = false;
+													var gsCloudIn = false;   // inside a cloud box entered on this ray (its transmittance is counted)
 													for ( var gsI = 0u; gsI < 16u; gsI ++ ) {
 
 														var gsHit: ${ raycastOutput };
@@ -46,6 +47,60 @@
 
 														let gsObject = transforms[ gsHit.objectIndex ];
 														let gsMaterial = ( *materials )[ gsObject.materialIndex ];
+														if ( gsMaterial.fogVolume == 3 && gsI < 15u ) {
+
+															// cloud volume (clouds.js): transmittance through its box – entering: from the face to where the box is
+															// left; a back face without entering: the ray started inside. Marched in 24 jittered steps (smooth shadows,
+															// no extra noise)
+															var gsA = 0.0;
+															var gsB = gsHit.dist;
+															var gsCount = ! gsCloudIn;
+															if ( gsHit.side > 0.0 ) {
+
+																gsA = gsHit.dist;
+																gsB = gsHit.dist + ${ __CLOUD.boxExit }(
+																	( gsObject.inverseMatrixWorld * vec4f( gsRay.origin + gsDir * gsHit.dist, 1.0 ) ).xyz,
+																	( gsObject.inverseMatrixWorld * vec4f( gsDir, 0.0 ) ).xyz );
+																gsCloudIn = true;
+																gsCount = true;
+
+															} else {
+
+																gsCloudIn = false;
+
+															}
+															if ( gsCount && gsB > gsA ) {
+
+																let gsScale = max( gsMaterial.clearcoat, 1e-6 );
+																let gsStep = ( gsB - gsA ) / 24.0;
+																let gsJitter = ${ rand1 }( 191u + gsI );
+																var gsTau = 0.0;
+																for ( var gsK = 0u; gsK < 24u; gsK ++ ) {
+
+																	let gsP = gsRay.origin + gsDir * ( gsA + ( f32( gsK ) + gsJitter ) * gsStep );
+																	gsTau += ${ __CLOUD.density }( ( gsObject.inverseMatrixWorld * vec4f( gsP, 1.0 ) ).xyz, gsP, gsMaterial.metalness, gsScale, gsMaterial.ior );
+
+																}
+																gsT *= exp( - gsTau * gsStep * gsMaterial.roughness * ${ __CLOUD.sigma }.0 / gsScale );
+
+															}
+															gsTravel += gsHit.dist;
+															let gsCloudPos = gsRay.origin + gsRay.direction * gsHit.dist;
+															gsRay.origin = ${ offsetRayOriginFunc }( gsCloudPos, gsDir, gsHit.normal );
+															if ( gsRay.maxDist > 0.0 ) {
+
+																gsRay.maxDist = max( gsRay.maxDist - gsHit.dist, 1e-4 );
+
+															}
+															if ( max( max( gsT.r, gsT.g ), gsT.b ) < 1e-3 ) {
+
+																gsBlocked = true;
+																break;
+
+															}
+															continue;
+
+														}
 														if ( gsMode == 0u || gsMaterial.transmission <= 0.0 || gsMaterial.matte != 0 || gsI == 15u ) {
 
 															gsBlocked = true;

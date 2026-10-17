@@ -234,6 +234,7 @@ export class VolumeShafts {
      * @param {{scene: THREE.Scene, camera: THREE.PerspectiveCamera, bounds: THREE.Sphere|null,
      *   modelSize: number, hide: THREE.Object3D[], ground: THREE.Mesh|null}} ctx
      *   bounds = bounding sphere of the shown models, hide = left out of both depth passes (splats, …),
+     *   clouds = CloudSystem (clouds.js, optional): its volumes draw their own depth,
      *   ground = only in the camera depth (allowOverride = false, so switched on for it): rays end on the floor
      * @param {number} width full resolution (march and blur run at half of it)
      * @param {number} height
@@ -288,21 +289,25 @@ export class VolumeShafts {
             u.sunViewProj.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
             u.bias.value = 3 / SUN_SIZE;   // ~1.5 texels of depth (range 4R over the map width 2R)
             scene.overrideMaterial = this.sunDepthMaterial;
+            ctx.clouds?.beginDepth('sun', cam.far);   // cloud volumes: their shape, not their box (clouds.js)
             renderer.setClearColor(0xffffff, 1);
             renderer.setRenderTarget(this.sunTarget);
             renderer.render(scene, cam);
+            ctx.clouds?.endDepth();
         }
 
         // 2. camera depth (full resolution, for the upsampling); the ground counts (rays end on the floor)
         const ground = ctx.ground, groundAllow = ground?.material.allowOverride;
         if (ground) { ground.visible = prev.visible[hide.length - 1]; ground.material.allowOverride = true; }
         scene.overrideMaterial = this.camDepthMaterial;
+        ctx.clouds?.beginDepth('camera', u.modelSize.value);
         renderer.setClearColor(0x000000, 1);
         if (fisheyeEnabled()) this._fisheyeDepth(renderer, scene, camera);
         else {
             renderer.setRenderTarget(this.depthTarget);
             renderer.render(scene, camera);
         }
+        ctx.clouds?.endDepth();
         if (ground) ground.material.allowOverride = groundAllow;
 
         scene.overrideMaterial = prev.override;

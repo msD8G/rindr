@@ -136,7 +136,7 @@ function pathTracerPerfPatch() {
 //   sheen/iridescence fields (off for these materials); the megakernel adds the glow seen through a front face
 //   (MARBLE_WGSL in marble-pt.js, same function as the raster view) as emission. Wavefront kernels: no glow.
 const PT_STAND_IN_MODULE = fileURLToPath(new URL('./src/scripts/pt-stand-in.js', import.meta.url));
-const MARBLE_MODULE = fileURLToPath(new URL('./src/scripts/marble-pt.js', import.meta.url));
+const MARBLE_MODULE = fileURLToPath(new URL('./src/scripts/materials/marble-pt.js', import.meta.url));
 const MARBLE_EMISSION = `
 						// RINDR glowing marble (marble.js): the veins inside, seen through the front face
 						if ( materialInfo.fogVolume == 2 && hitResult.side > 0.0 ) {
@@ -221,8 +221,11 @@ function glassShadowPatch() {
         if (n !== 1) this.error(`rindr-glass-shadow: ${from} not found exactly once in PathTracerMegaKernel.js (three-gpu-pathtracer changed?)`);
         code = code.replace(from, to);
       };
-      // shadow catcher (shadow-catcher.patch.wgsl, inserted by rindr-shadow-catcher before this plugin)
-      replaceOnce(/\n\t*\/\/@glass-shadow ([^\n]+)/, (_, args) => {
+      // markers of other patches: shadow catcher (shadow-catcher.patch.wgsl, rindr-shadow-catcher) and the cloud
+      // volumes' light samples (cloud-pt.js, rindr-cloud) – both inserted before this plugin
+      const markers = /\n\t*\/\/@glass-shadow ([^\n]+)/g;
+      if ((code.match(markers) || []).length !== 2) this.error('rindr-glass-shadow: expected 2 //@glass-shadow markers in PathTracerMegaKernel.js');
+      code = code.replace(markers, (_, args) => {
         const [origin, dir, maxDist, normal, primary] = args.split('|').map(a => a.trim());
         return '\n' + snippet({ origin, dir, maxDist, normal, primary });
       });
@@ -244,6 +247,34 @@ function glassShadowPatch() {
       replaceOnce('let lightHit = ${ clampPathContributionFunc }( lightRec.emission * throughputColor * misWeight, bounce, clampDirect, clampIndirect );',
         () => `let lightHit = select( \${ clampPathContributionFunc }( lightRec.emission * throughputColor * misWeight, bounce, clampDirect, clampIndirect ), vec3f( 0.0 ), ${drop} );`);
       return { code: `import { GLASS_SHADOW as __GS } from ${JSON.stringify(GLASS_SHADOW_MODULE)};\n` + code, map: null };
+    },
+  };
+}
+
+// Cloud volumes (src/scripts/clouds.js, cloud-pt.js – fails loudly if the library changed, check on every update):
+// - megakernel: a hit on a cloud proxy (ptVolume 3) walks through the volume (CLOUD_WALK_WGSL), right after the
+//   material is read; its light samples carry a //@glass-shadow marker (rindr-glass-shadow runs after this plugin)
+// - BVHComputeData: meshes with a cloud material are left out like invisible ones – the proxy stands in for them
+const CLOUD_PT_MODULE = fileURLToPath(new URL('./src/scripts/materials/cloud-pt.js', import.meta.url));
+const CLOUD_WALK_PATCH = fileURLToPath(new URL('./src/scripts/materials/cloud-walk.patch.wgsl', import.meta.url));
+function cloudPatch() {
+  return {
+    name: 'rindr-cloud',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.replace(/\\/g, '/').split('?')[0];
+      const replaceOnce = (from, to, name) => {
+        const n = typeof from === 'string' ? code.split(from).length - 1 : (code.match(new RegExp(from.source, 'g')) || []).length;
+        if (n !== 1) this.error(`rindr-cloud: ${from} not found exactly once in ${name} (three-gpu-pathtracer / three-mesh-bvh changed?)`);
+        code = code.replace(from, to);
+      };
+      if (file.endsWith('three-mesh-bvh/src/webgpu/BVHComputeData.js')) {
+        replaceOnce('let visible = isObjectVisible( object );', () => 'let visible = isObjectVisible( object ) && ! object.material?.userData?.cloud;', 'BVHComputeData.js');
+        return { code, map: null };
+      }
+      if (!file.endsWith('three-gpu-pathtracer/src/webgpu/compute/PathTracerMegaKernel.js')) return null;
+      replaceOnce(/\n\t+materialInfo\.opacity \*= objectInfo\.color\.a;\n/, m => m + readFileSync(CLOUD_WALK_PATCH, 'utf8'), 'PathTracerMegaKernel.js');
+      return { code: `import { CLOUD_PT as __CLOUD } from ${JSON.stringify(CLOUD_PT_MODULE)};\n` + code, map: null };
     },
   };
 }
@@ -288,7 +319,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch(), glassBouncesPatch(), glassShadowPatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch(), glassBouncesPatch(), cloudPatch(), glassShadowPatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },
