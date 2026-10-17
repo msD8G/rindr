@@ -69,6 +69,10 @@
             "newTitle": "Neues Material",
             "empty": "Noch keine Materialien",
             "selectionBadge": "Auswahl",
+            "viewList": "Liste",
+            "viewGrid": "Kacheln",
+            "reloadThumbs": "Vorschaubilder neu erzeugen (mit der aktuellen Umgebung, z.B. nach einem HDRI-Wechsel)",
+            "checker": "Checkerboard hinter den Vorschaubildern (Transparenz und Brechung beurteilen)",
             "stepPlaceholderHint": "Platzhalter aus der STEP-Farbe – durch ein Bibliotheks-Material ersetzen",
             "importedHint": "Material aus der importierten Datei",
             "libraryHint": "Ziehen: auf ein Objekt oder einen Eintrag im Scene Graph · Doppelklick: in die Szene übernehmen",
@@ -198,8 +202,8 @@
             "marble-glow-blue": "Leuchtmarmor blau",
             "marble-glow-amber": "Leuchtmarmor bernstein",
             "toon-orange": "Toon (orange)",
-            "outline-white": "Outline weiß",
-            "outline-black": "Outline schwarz"
+            "outline-white": "Weiß, Kontur schwarz",
+            "outline-black": "Schwarz, Kontur weiß"
         },
         "defaultNames": {
             "material": "Material",

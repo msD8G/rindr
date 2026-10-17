@@ -12,6 +12,7 @@ import { IMPORT, KI, SPLATS, RASTER, SCENE, TRANSITION } from './config.js';
 import { importMeshFile, MissingFilesError, MESH_EXTENSIONS } from './mesh-importer.js';
 import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
+import { MaterialThumbs } from './material-thumbs.js';
 import { GraphApplier } from './graph-apply.js';
 import { NodeEditor } from './node-editor.js';
 import { createStudioEnvironment, renderStudioEnvironment, loadHdri, listHdris, VignetteBackground } from './environment.js';
@@ -1251,6 +1252,10 @@ const materialPanel = new MaterialPanel(document.getElementById('materials'), ma
     },
     onOpenNodeEditor: id => openNodeEditor?.(id),
     onMergeDuplicates: () => mergeDuplicateMaterials(),
+    // rendered previews under the current environment, as bright as in the scene (switched off: the studio)
+    thumbs: new MaterialThumbs(renderer, () => (environment.on
+        ? { texture: environment.texture, intensity: environment.intensity * environment.lightBoost, rotation: scene.environmentRotation.y }
+        : { texture: studioTexture, intensity: 0.8, rotation: 0 })),
     // select all meshes with this material (multi-selection, "assign" replaces it on all of them)
     onSelectUsers: id => {
         const entry = materialManager.get(id);

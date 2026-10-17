@@ -408,38 +408,7 @@ export class MaterialManager extends EventTarget {
 
     _apply(entry) {
         const { material, def } = entry;
-        const p = { ...defaults(), ...def.params };
-        material.color.set(p.color);
-        material.metalness = p.metalness;
-        material.roughness = p.roughness;
-        material.specularIntensity = p.specularIntensity;
-        material.clearcoat = p.clearcoat;
-        material.clearcoatRoughness = p.clearcoatRoughness;
-        material.transmission = p.transmission;
-        material.ior = p.ior;
-        material.thickness = p.thickness;
-        material.attenuationColor.set(p.attenuationColor);
-        material.attenuationDistance = p.attenuationDistance;
-        material.sheen = p.sheen;
-        material.sheenColor.set(p.sheenColor);
-        material.sheenRoughness = p.sheenRoughness;
-        material.iridescence = p.iridescence;
-        material.emissive.set(p.emissive);
-        material.emissiveIntensity = p.emissiveIntensity;
-        material.opacity = p.opacity;
-        material.transparent = p.opacity < 1;
-        material.setSubsurface(p.subsurface, p.subsurfaceColor, p.subsurfaceRadius);   // after the physical params
-        material.setMarble(p.marble, p.marbleColor, p.marbleScale);
-        material.toon = p.toon > 0;
-        material.flat = p.flat > 0;
-        if (material.flat) {
-            // flat: no diffuse response, the colour as emission – the path tracer shows it as it is too (no light
-            // steps in HQ), the raster output takes the emission (toon.js)
-            material.color.set(0x000000);
-            material.emissive.set(p.color);
-            material.emissiveIntensity = 1;
-        }
-        material.userData.contour = p.contour > 0 ? { color: p.contourColor, width: p.contourWidth } : null;
+        applyParams(material, def.params);
         if (def.render) applyRender(material, def.render, !!def.graph?.nodes?.length);
         material.needsUpdate = true;
         // Hook for the node editor (graph -> TSL/textures)
@@ -449,6 +418,48 @@ export class MaterialManager extends EventTarget {
     _emit(type, detail) {
         this.dispatchEvent(new CustomEvent(type, { detail }));
     }
+}
+
+/** Standalone material from parameters (not registered – e.g. a library preset's thumbnail) */
+export function buildMaterial(params) {
+    const material = new RindrMaterial();
+    applyParams(material, params);
+    return material;
+}
+
+function applyParams(material, params) {
+    const p = { ...defaults(), ...params };
+    material.color.set(p.color);
+    material.metalness = p.metalness;
+    material.roughness = p.roughness;
+    material.specularIntensity = p.specularIntensity;
+    material.clearcoat = p.clearcoat;
+    material.clearcoatRoughness = p.clearcoatRoughness;
+    material.transmission = p.transmission;
+    material.ior = p.ior;
+    material.thickness = p.thickness;
+    material.attenuationColor.set(p.attenuationColor);
+    material.attenuationDistance = p.attenuationDistance;
+    material.sheen = p.sheen;
+    material.sheenColor.set(p.sheenColor);
+    material.sheenRoughness = p.sheenRoughness;
+    material.iridescence = p.iridescence;
+    material.emissive.set(p.emissive);
+    material.emissiveIntensity = p.emissiveIntensity;
+    material.opacity = p.opacity;
+    material.transparent = p.opacity < 1;
+    material.setSubsurface(p.subsurface, p.subsurfaceColor, p.subsurfaceRadius);   // after the physical params
+    material.setMarble(p.marble, p.marbleColor, p.marbleScale);
+    material.toon = p.toon > 0;
+    material.flat = p.flat > 0;
+    if (material.flat) {
+        // flat: no diffuse response, the colour as emission – the path tracer shows it as it is too (no light
+        // steps in HQ), the raster output takes the emission (toon.js)
+        material.color.set(0x000000);
+        material.emissive.set(p.color);
+        material.emissiveIntensity = 1;
+    }
+    material.userData.contour = p.contour > 0 ? { color: p.contourColor, width: p.contourWidth } : null;
 }
 
 // Textures and display properties of imported materials. With a node graph, graph-apply sets the

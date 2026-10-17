@@ -4,6 +4,7 @@ import { loadEnv } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 
 // Patches three-gpu-pathtracer's megakernel (fails loudly if the library changed – check on every update):
 // - shadow catcher (src/scripts/shadow-catcher.js): matte branch → src/scripts/shadow-catcher.patch.wgsl, incl. ground
@@ -255,6 +256,22 @@ const isolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
+// App version ("About"): major.minor from package.json (raised by hand), patch = number of git commits – counts up
+// with every commit, the same commit always gives the same version, nothing is written back. "-dev": built with
+// uncommitted changes. Without git (source archive): package.json as it is. CI needs the full history
+// (fetch-depth: 0 in .github/workflows/static.yml – a shallow clone counts 1).
+function appVersion() {
+  const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+  const git = args => execSync(`git ${args}`, { cwd: fileURLToPath(new URL('.', import.meta.url)), stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  try {
+    const commits = git('rev-list --count HEAD');
+    const dirty = git('status --porcelain') !== '';
+    return `${version.split('.').slice(0, 2).join('.')}.${commits}${dirty ? '-dev' : ''}`;
+  } catch {
+    return version;
+  }
+}
+
 // .env is not loaded into process.env for the config itself (prefix '' = all keys, read here only)
 const fileEnv = loadEnv(process.env.NODE_ENV === 'production' ? 'production' : 'development', process.cwd(), '');
 
@@ -275,6 +292,7 @@ export default defineConfig({
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },
+    define: { __APP_VERSION__: JSON.stringify(appVersion()) },
     optimizeDeps: {
       // These packages create workers via `new URL(..., import.meta.url)` –
       // pre-bundling would break the relative worker paths.

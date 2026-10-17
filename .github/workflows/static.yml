@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: the app version counts the commits (astro.config.mjs)
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -1,12 +1,13 @@
 // "About" page of the settings menu: name, description, author, version, a little credit line and the
 // open-source projects RINDR is built on (with link and licence – list in libraries.js, also used for
-// README.md). Author data: ABOUT in config.js, version from package.json. Purpose texts come from the language
-// files (about.libs.<id>).
-import { version } from '../../package.json';
+// README.md). Author data: ABOUT in config.js, version from the build (astro.config.mjs: package.json
+// major.minor + git commit count). Purpose texts come from the language files (about.libs.<id>).
 import { ABOUT } from './config.js';
 import { t } from './i18n.js';
 import logoUrl from '../assets/rindr.svg?url';
 import { RUNTIME, ASSETS, BUILD } from './libraries.js';
+
+const version = __APP_VERSION__;   // set at build time (vite define)
 
 const el = (tag, cls = '', text) => {
     const e = document.createElement(tag);

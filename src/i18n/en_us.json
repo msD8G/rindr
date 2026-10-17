@@ -69,6 +69,10 @@
             "newTitle": "New material",
             "empty": "No materials yet",
             "selectionBadge": "Selection",
+            "viewList": "List",
+            "viewGrid": "Tiles",
+            "reloadThumbs": "Recreate the previews (with the current environment, e.g. after switching the HDRI)",
+            "checker": "Checkerboard behind the previews (judge transparency and refraction)",
             "stepPlaceholderHint": "Placeholder from the STEP colour – replace with a library material",
             "importedHint": "Material from the imported file",
             "libraryHint": "Drag: onto an object or a Scene Graph entry · Double-click: add to the scene",
@@ -198,8 +202,8 @@
             "marble-glow-blue": "Glowing marble blue",
             "marble-glow-amber": "Glowing marble amber",
             "toon-orange": "Toon (orange)",
-            "outline-white": "Outline white",
-            "outline-black": "Outline black"
+            "outline-white": "White, black outline",
+            "outline-black": "Black, white outline"
         },
         "defaultNames": {
             "material": "Material",
