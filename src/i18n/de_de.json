@@ -72,7 +72,7 @@
             "viewList": "Liste",
             "viewGrid": "Kacheln",
             "reloadThumbs": "Vorschaubilder neu erzeugen (mit der aktuellen Umgebung, z.B. nach einem HDRI-Wechsel)",
-            "checker": "Checkerboard hinter den Vorschaubildern (Transparenz und Brechung beurteilen)",
+            "checker": "UV-Prüfmuster hinter den Vorschaubildern (Transparenz und Brechung beurteilen)",
             "stepPlaceholderHint": "Platzhalter aus der STEP-Farbe – durch ein Bibliotheks-Material ersetzen",
             "importedHint": "Material aus der importierten Datei",
             "libraryHint": "Ziehen: auf ein Objekt oder einen Eintrag im Scene Graph · Doppelklick: in die Szene übernehmen",
@@ -550,11 +550,11 @@
             "reflectionTitle": "Boden spiegelt Modell und Umgebung (nur HQ)",
             "reflectionStrength": "Stärke",
             "reflectionBlur": "Unschärfe",
-            "wet": "Regen\u00adwetter",
+            "wet": "Regen­wetter",
             "wetTitle": "Schlechtwetter: nasser Boden mit Pfützen (nur HQ)",
             "puddles": "Pfützen",
             "puddleSize": "Pfützengröße",
-            "ground": "Boden\u00adschatten",
+            "ground": "Boden­schatten",
             "groundTitle": "Modell wirft Schatten",
             "hdri": "HDRI",
             "hdriTitle": "HDRI aus dem Ordner hdr",
@@ -1062,7 +1062,16 @@
         "hq": {
             "label": "HQ",
             "title": "HQ – Pathtracing (3)"
-        }
+        },
+        "uv": {
+            "label": "UV",
+            "title": "UV – Prüfmuster über die Texturkoordinaten: Verzerrung, Nähte, gespiegelte UVs (1)"
+        },
+        "wire": {
+            "label": "Draht",
+            "title": "Drahtgitter – graues Modell mit seinen Kanten (1)"
+        },
+        "analysisChoice": "Analyse-Ansicht wählen: Basic, UV, Drahtgitter"
     },
     "quadMenu": {
         "display": "Anzeige",

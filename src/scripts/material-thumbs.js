@@ -1,6 +1,7 @@
 // Material thumbnails: every material rendered on a sphere with the real renderer (raster, same TSL material as in
 // the scene) under the scene's current environment (HDRI, intensity, rotation) + a key light, tone-mapped and cut
-// on the CPU. In front of a red/green/blue checkerboard (wish of the user, toggle in the panel, remembered per
+// on the CPU. In front of the UV test pattern (uv-checker.js – wish of the user; before Oct. 2026 an RGB checkerboard;
+// toggle in the panel, remembered per
 // browser): transparency and refraction (IOR) show right in the preview – a real backdrop in the scene, so glass
 // bends it. Switched off: a dark plain backdrop, the sphere cut out round. Rendered when first needed; reload() makes all of
 // them anew (after switching the HDRI).
@@ -16,15 +17,15 @@
 //  - square image with the checkerboard (the panel rounds the corners), round without
 import * as THREE from 'three/webgpu';
 import { compileAsync } from './shader-compile.js';
+import { uvCheckerTexture, sampleUvChecker } from './uv-checker.js';
 
-export const THUMB_SIZE = 96;               // output pixels (tile sphere 44 CSS px, sharp up to 2× HiDPI)
+export const THUMB_SIZE = 96;               // output pixels (tile sphere 56 CSS px, sharp up to ~1.7× HiDPI)
 const RENDER_SIZE = THUMB_SIZE * 2;         // rendered at twice the size, box-filtered down (anti-aliasing)
-const THUMB_VERSION = 13;                   // raise when the look changes (old images are not used any more)
+const THUMB_VERSION = 16;                   // raise when the look changes (old images are not used any more)
 const RADIUS = 25;                          // scene units (mm for CAD) – subsurface radius, marble scale etc. fit
 const FOV = 30;
 const FILL = 0.8;                           // sphere diameter / image size (the checkerboard shows around it)
 const THICKNESS = 0.4 * RADIUS;             // transmission thickness on the sphere (see _render)
-const CHECKER_CELLS = 10;                   // cells across the image
 const CHECKER_BEHIND = 6;                   // backdrop distance behind the sphere's centre (radii) – beyond the ball lens's focus
                                             // (~1.5 radii): upside down and squeezed; at 1.2 a magnifier (four cells)
 const EXPOSURE = 1.0;
@@ -243,7 +244,7 @@ export class MaterialThumbs extends EventTarget {
         const backdrop = new THREE.Mesh(backdropGeometry());
         backdrop.position.z = -CHECKER_BEHIND * RADIUS;
         scene.add(backdrop);
-        const checker = new THREE.MeshBasicNodeMaterial({ map: checkerTexture() });
+        const checker = new THREE.MeshBasicNodeMaterial({ map: uvCheckerTexture() });
         const plain = new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(0.02, 0.02, 0.02) });
         const black = new THREE.MeshBasicNodeMaterial({ color: 0x000000 });
         const white = new THREE.MeshBasicNodeMaterial({ color: 0xffffff });
@@ -261,21 +262,8 @@ export class MaterialThumbs extends EventTarget {
     }
 }
 
-// checkerboard: pure red, green, blue at full brightness, unlit (user: "RGB als solches"; before: pastel cells of
-// every hue 6 across → too loud; muted RGB on dark grey → user wanted plain RGB). The HDRI as background made clear
-// glass look like white plastic – too bright and plain to see the bending.
-function checkerTexture() {
-    const n = CHECKER_CELLS, data = new Uint8Array(n * n * 4);
-    for (let y = 0; y < n; y++) {
-        for (let x = 0; x < n; x++) data[(y * n + x) * 4 + (x + 2 * y) % 3] = 255;   // neighbours always differ
-    }
-    for (let i = 3; i < data.length; i += 4) data[i] = 255;
-    const texture = new THREE.DataTexture(data, n, n);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.magFilter = THREE.NearestFilter;
-    texture.needsUpdate = true;
-    return texture;
-}
+// backdrop: the UV test pattern once across the view, unlit (before: an RGB checkerboard – pastel, then muted, then
+// plain RGB; the HDRI as background made clear glass look like white plastic – too bright and plain to see the bending)
 
 // plane filling the view behind the sphere
 function backdropGeometry() {
@@ -394,10 +382,12 @@ function traceRefraction(ox, oy, oz, dx, dy, dz, ior, spread, jitter, wallZ, wal
     if (dz >= -1e-6) return;   // away from the wall
     const t = (wallZ - oz) / dz;
     const u = (ox + t * dx) / wallSize + 0.5, v = (oy + t * dy) / wallSize + 0.5;
-    // the checkerboard's cells (checkerTexture: row 0 at the bottom), repeated beyond the wall's edge
-    const cx = Math.floor(u * CHECKER_CELLS), cy = Math.floor(v * CHECKER_CELLS);
-    cell[(((cx + 2 * cy) % 3) + 3) % 3] += 1;
+    // the pattern on the wall (its uv: 0…1 across the view, v up), repeated beyond the edge
+    sampleUvChecker(u, v, _wall);
+    cell[0] += _wall[0]; cell[1] += _wall[1]; cell[2] += _wall[2];
 }
+
+const _wall = [0, 0, 0];
 
 // GLSL refract with N facing against I; null on total internal reflection
 function refract(ix, iy, iz, nx, ny, nz, eta) {

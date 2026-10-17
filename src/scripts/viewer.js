@@ -13,6 +13,7 @@ import { importMeshFile, MissingFilesError, MESH_EXTENSIONS } from './mesh-impor
 import { MaterialManager, FADE_MASK } from './material-manager.js';
 import { MaterialPanel, MATERIAL_MIME } from './material-panel.js';
 import { MaterialThumbs } from './material-thumbs.js';
+import { uvCheckerTexture } from './uv-checker.js';
 import { CloudSystem } from './materials/clouds.js';
 import { GraphApplier } from './graph-apply.js';
 import { NodeEditor } from './node-editor.js';
@@ -880,7 +881,11 @@ window.addEventListener('keydown', e => {
         if (rootGroup) sceneGraph.selectAllParts();
         return;
     }
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && ['1', '2', '3'].includes(e.key) && !splatMesh) setViewMode(['basic', 'default', 'hq'][Number(e.key) - 1]);
+    // 1: the analysis view (Basic/UV/wireframe – already in it: the next variant), 2: Default, 3: HQ
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && ['1', '2', '3'].includes(e.key) && !splatMesh) {
+        const variants = ['basic', 'uv', 'wire'];
+        setViewMode(e.key === '1' ? (isAnalysis(viewMode) ? variants[(variants.indexOf(viewMode) + 1) % 3] : viewModeBar.analysis) : ['default', 'hq'][Number(e.key) - 2]);
+    }
     if (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) toggleUi();
     if (e.key === 'w' || e.key === 'W') { transformer.setMode('translate'); properties.show(selection); }
     if (e.key === 'e' || e.key === 'E') { transformer.setMode('rotate'); properties.show(selection); }
@@ -2348,10 +2353,45 @@ function updateShaftSource() {
     lens.setShaftSource(_shaftPoint.x * 0.5 + 0.5, 0.5 - _shaftPoint.y * 0.5, fade);   // uv of the quad: origin top left
 }
 
+// wireframe view: the edges over the clay drawn just before (same target, its depth kept)
+function drawWireframe(cam) {
+    const autoClear = renderer.autoClear, background = scene.background, backgroundNode = scene.backgroundNode;
+    // things that keep their own material (allowOverride = false) would be drawn a second time
+    const hidden = [ground.mesh, splatMesh].filter(o => o?.visible);
+    hidden.forEach(o => { o.visible = false; });
+    renderer.autoClear = false;
+    scene.background = null;
+    scene.backgroundNode = null;
+    scene.overrideMaterial = wireMaterial;
+    try {
+        renderer.render(scene, cam);
+    } finally {
+        hidden.forEach(o => { o.visible = true; });
+        scene.overrideMaterial = wireFillMaterial;
+        scene.background = background;
+        scene.backgroundNode = backgroundNode;
+        renderer.autoClear = autoClear;
+    }
+}
+
 // --- View mode: Basic (grey) / Default (raster with materials) / HQ (path tracing) ---
 // Basic only overrides the display (scene.overrideMaterial); ground etc. have allowOverride = false.
 const clayMaterial = new THREE.MeshStandardNodeMaterial({ color: 0x8a8a8a, roughness: 0.55, metalness: 0, side: THREE.DoubleSide });
 clayMaterial.maskNode = FADE_MASK;   // fade-in on import also in Basic
+// analysis variants of Basic (view-mode.js): UV – the test pattern (uv-checker.js) through each mesh's uv, lit like the
+// clay; wire – the clay pushed back a little (polygon offset) and a second pass of its edges on top with the depth of
+// the first (only visible edges – a plain wireframe override showed the whole model see-through)
+const uvMaterial = new THREE.MeshStandardNodeMaterial({ map: uvCheckerTexture(), roughness: 0.6, metalness: 0, side: THREE.DoubleSide });
+uvMaterial.maskNode = FADE_MASK;
+const wireFillMaterial = clayMaterial.clone();
+wireFillMaterial.maskNode = FADE_MASK;
+wireFillMaterial.polygonOffset = true;
+wireFillMaterial.polygonOffsetFactor = 1;
+wireFillMaterial.polygonOffsetUnits = 1;
+const wireMaterial = new THREE.MeshBasicNodeMaterial({ color: 0x1c1c1c, wireframe: true, transparent: true, opacity: 0.85, depthWrite: false });
+wireMaterial.maskNode = FADE_MASK;
+const ANALYSIS_MATERIALS = { basic: clayMaterial, uv: uvMaterial, wire: wireFillMaterial };
+const isAnalysis = mode => mode in ANALYSIS_MATERIALS;
 ground.material.allowOverride = false;
 let viewMode = pathTracing.enabled ? 'hq' : 'default';
 const viewModeBar = new ViewModeBar(document.getElementById('view-mode'), mode => setViewMode(mode));
@@ -2938,13 +2978,13 @@ function setViewMode(mode) {
     // playing: no automatic return to HQ
     if (animPlaying && clipAnims().length) { hqBeforePlay = false; if (mode === 'hq') setAnimPlaying(false); }
     viewMode = mode;
-    scene.overrideMaterial = mode === 'basic' ? clayMaterial : null;
+    scene.overrideMaterial = ANALYSIS_MATERIALS[mode] ?? null;
     // Basic without shadow maps: each one is another pass over the whole model (one draw call per mesh –
     // large assemblies: 2 × ~7500 extra draw calls per frame); the contact shadow stays.
     // Not via castShadow: switching it off disposes the light's ShadowNode, but cached render objects of the
     // shadowed variant keep it → back in Default updateBefore reads the freed map ("reading 'depthTexture'
     // of null", three r186). Instead: no shadow-map updates and shadow intensity 0 (uniform, no recompile)
-    const shadows = mode !== 'basic';
+    const shadows = !isAnalysis(mode);
     shadowsOn = shadows;
     for (const light of [dirLight1, dirLight2]) {
         light.shadow.needsUpdate = shadows;
@@ -4516,7 +4556,7 @@ renderer.setAnimationLoop(() => {
     // a regrouping compiles its shaders beforehand for the mode it happens in (render-batcher.js, _stage)
     if (batcher.generation !== prepare.generation) {
         prepare.generation = batcher.generation;
-        preparedModes.add(`${viewMode === 'basic' ? 'basic' : 'default'}:${batcher.generation}`);
+        preparedModes.add(`${isAnalysis(viewMode) ? viewMode : 'default'}:${batcher.generation}`);
     }
     updateShadowMaps();
     if (prepare.compile) {
@@ -4561,6 +4601,7 @@ renderer.setAnimationLoop(() => {
     const focusLine = !capture && !exportReq && dof.enabled && dof.showPlane && selection?.kind === 'camera';
     const drawRaster = cam => {
         renderer.render(scene, cam);
+        if (viewMode === 'wire') drawWireframe(cam);
         slicer.renderCaps(renderer, scene, cam);
         if (contact) contactShadow.render(renderer, cam);
         if (focusLine && cam !== camera) dof.renderLine(renderer, scene, [ground.material], cam);

@@ -72,7 +72,7 @@
             "viewList": "List",
             "viewGrid": "Tiles",
             "reloadThumbs": "Recreate the previews (with the current environment, e.g. after switching the HDRI)",
-            "checker": "Checkerboard behind the previews (judge transparency and refraction)",
+            "checker": "UV test pattern behind the previews (judge transparency and refraction)",
             "stepPlaceholderHint": "Placeholder from the STEP colour – replace with a library material",
             "importedHint": "Material from the imported file",
             "libraryHint": "Drag: onto an object or a Scene Graph entry · Double-click: add to the scene",
@@ -1062,7 +1062,16 @@
         "hq": {
             "label": "HQ",
             "title": "HQ – path tracing (3)"
-        }
+        },
+        "uv": {
+            "label": "UV",
+            "title": "UV – test pattern over the texture coordinates: stretching, seams, mirrored UVs (1)"
+        },
+        "wire": {
+            "label": "Wire",
+            "title": "Wireframe – grey model with its edges (1)"
+        },
+        "analysisChoice": "Choose the analysis view: Basic, UV, wireframe"
     },
     "quadMenu": {
         "display": "Display",
