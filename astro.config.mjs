@@ -201,6 +201,52 @@ function glassBouncesPatch() {
   };
 }
 
+// Glass shadows (src/scripts/glass-shadow.js): shadow rays through glass (next event estimation + shadow catcher), the
+// colour fringe, and no caustic paths while that is on (fails loudly if the library changed – check on every update).
+const GLASS_SHADOW_MODULE = fileURLToPath(new URL('./src/scripts/glass-shadow.js', import.meta.url));
+const GLASS_SHADOW_PATCH = fileURLToPath(new URL('./src/scripts/glass-shadow.patch.wgsl', import.meta.url));
+function glassShadowPatch() {
+  return {
+    name: 'rindr-glass-shadow',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.replace(/\\/g, '/').split('?')[0];
+      if (!file.endsWith('three-gpu-pathtracer/src/webgpu/compute/PathTracerMegaKernel.js')) return null;
+      const snippet = ({ origin, dir, maxDist, normal, primary }) => readFileSync(GLASS_SHADOW_PATCH, 'utf8')
+        .replace(/\$ORIGIN/g, origin).replace(/\$DIR/g, dir).replace(/\$MAXDIST/g, maxDist)
+        .replace(/\$NORMAL/g, normal).replace(/\$PRIMARY/g, primary);
+      const replaceOnce = (from, to) => {
+        const n = typeof from === 'string' ? code.split(from).length - 1 : (code.match(new RegExp(from.source, 'g')) || []).length;
+        if (n !== 1) this.error(`rindr-glass-shadow: ${from} not found exactly once in PathTracerMegaKernel.js (three-gpu-pathtracer changed?)`);
+        code = code.replace(from, to);
+      };
+      // shadow catcher (shadow-catcher.patch.wgsl, inserted by rindr-shadow-catcher before this plugin)
+      replaceOnce(/\n\t*\/\/@glass-shadow ([^\n]+)/, (_, args) => {
+        const [origin, dir, maxDist, normal, primary] = args.split('|').map(a => a.trim());
+        return '\n' + snippet({ origin, dir, maxDist, normal, primary });
+      });
+      // next event estimation: transmitted light instead of a plain occlusion test; through glass the full weight
+      // (the bsdf-sampled counterpart is a caustic path, not counted, see below)
+      replaceOnce(/\n\t+var shadowHit: \$\{ raycastOutput \};\n\t+let occluded = \$\{ raycastFirstHitFn \}\( shadowRay, &shadowHit \);\n(\t+)if \( ! occluded \) \{/,
+        (_, tab) => '\n' + snippet({ origin: 'vertexData.position.xyz', dir: 'lightRec.direction', maxDist: 'shadowRay.maxDist', normal: 'hitResult.normal', primary: 'bounce == 0u' })
+          + `${tab}if ( any( gsShadow > vec3f( 0.0 ) ) ) {`);
+      replaceOnce('${ isMISWeightLightFn }( lightRec.lightType ) );', () => '${ isMISWeightLightFn }( lightRec.lightType ) && ! gsGlass );');
+      replaceOnce('let directLight = throughputColor * lightRec.emission * evalRec.color * misWeight / lightPdf;',
+        () => 'let directLight = throughputColor * lightRec.emission * evalRec.color * misWeight * gsShadow / lightPdf;');
+      // caustic paths: a refraction after a rough bounce (low pdf, not transmissive) – their light/environment hit is
+      // dropped while glass shadows are transparent
+      replaceOnce(/\n(\t+)var transparentBounce = 0u;/, (m, tab) => `${m}\n${tab}var gsRough = false;\n${tab}var gsCaustic = false;`);
+      replaceOnce(/\n(\t+)minPdf = min\( minPdf, scatterRec\.pdf \);/, (m, tab) => `${m}\n\n${tab}if ( ! scatterRec.isTransmissive && scatterRec.pdf < 4.0 ) {\n\n${tab}\tgsRough = true;\n${tab}\tgsCaustic = false;\n\n${tab}} else if ( scatterRec.isTransmissive && gsRough ) {\n\n${tab}\tgsCaustic = true;\n\n${tab}}`);
+      const drop = '( gsCaustic && ${ __GS.mode } == 1u )';
+      replaceOnce('let contribution = ${ clampPathContributionFunc }( environment, bounce, clampDirect, clampIndirect );',
+        () => `let contribution = select( \${ clampPathContributionFunc }( environment, bounce, clampDirect, clampIndirect ), vec3f( 0.0 ), ${drop} );`);
+      replaceOnce('let lightHit = ${ clampPathContributionFunc }( lightRec.emission * throughputColor * misWeight, bounce, clampDirect, clampIndirect );',
+        () => `let lightHit = select( \${ clampPathContributionFunc }( lightRec.emission * throughputColor * misWeight, bounce, clampDirect, clampIndirect ), vec3f( 0.0 ), ${drop} );`);
+      return { code: `import { GLASS_SHADOW as __GS } from ${JSON.stringify(GLASS_SHADOW_MODULE)};\n` + code, map: null };
+    },
+  };
+}
+
 // Cross-origin isolation: required for SharedArrayBuffer so three-mesh-bvh can build the BVH
 // in parallel on several workers (= CPU cores). In production public/.htaccess sets the
 // same headers.
@@ -225,7 +271,7 @@ export default defineConfig({
     headers: isolationHeaders,
   },
   vite: {
-    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch(), glassBouncesPatch()],
+    plugins: [tailwindcss(), shadowCatcherPatch(), pathTracerPerfPatch(), ptStandInPatch(), glassBouncesPatch(), glassShadowPatch()],
     server: { headers: isolationHeaders },
     preview: { headers: isolationHeaders },
     worker: { format: 'es' },

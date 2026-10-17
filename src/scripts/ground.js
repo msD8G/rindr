@@ -39,6 +39,7 @@ export class GroundProjection {
         this.height = 1;          // projection height (model units)
         this.groundY = 0;
         this.strength = 1;        // shadow strength 0…1
+        this.bounce = 1;          // colour bleeding (light of the model onto the ground, path tracer) 0 = off
         this._irradiance = null;  // E of the HDRI upper hemisphere (without environmentIntensity)
         this._texture = null;
         this._fadeKey = '';
@@ -107,7 +108,7 @@ export class GroundProjection {
 
     /** Update the shadow catcher weights (after changes of HDRI, intensity or lights) */
     update(scene) {
-        updateShadowCatcher(scene, this._irradiance, { enabled: this.enabled, strength: this.strength });
+        updateShadowCatcher(scene, this._irradiance, { enabled: this.enabled, strength: this.strength, bounce: this.bounce });
     }
 }
 

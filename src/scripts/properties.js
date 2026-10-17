@@ -313,6 +313,8 @@ export class PropertiesPanel {
         section('env-ground', 'ground', undefined, () => [
             range('groundRadius', 'properties.environment.size', 'properties.environment.undo.size', 'env-ground-size', 0.001, 10, 0.001, { geometry: true, params: true }),
             range('groundSoftness', 'properties.environment.softness', 'properties.environment.undo.softness', 'env-ground-softness', 0, 1, 0.01, { geometry: true, params: true }),
+            // colour bleeding (HQ): light of the model onto the ground
+            range('groundBounce', 'properties.environment.bounce', 'properties.environment.undo.bounce', 'env-ground-bounce', 0, 3, 0.01),
         ]);
         // flattened ground: HDRI height, floor height (distortion), sphere size (= where the floor ends), transition
         section('env-dome', 'dome', { params: true }, () => [
@@ -590,7 +592,9 @@ export class PropertiesPanel {
             th.title = t('properties.lens.glareThresholdTitle');
             return [
                 this._rangeRow(t('properties.lens.strength'), lens.glare.strength, 0, 5, 0.01, set('glare', t('properties.lens.undo.glareStrength'), 'strength', 'glare-strength')),
-                this._rangeRow(t('properties.lens.length'), lens.glare.length, 0, 1, 0.01, set('glare', t('properties.lens.undo.glareLength'), 'length', 'glare-length')),
+                this._rangeRow(t('properties.lens.length'), lens.glare.length, 0, 2, 0.01, set('glare', t('properties.lens.undo.glareLength'), 'length', 'glare-length')),
+                this._rangeRow(t('properties.lens.glareSharpness'), lens.glare.sharpness, 0, 1, 0.01, set('glare', t('properties.lens.undo.glareSharpness'), 'sharpness', 'glare-sharpness')),
+                this._rangeRow(t('properties.lens.glareChromatic'), lens.glare.chromatic, 0, 1, 0.01, set('glare', t('properties.lens.undo.glareChromatic'), 'chromatic', 'glare-chromatic')),
                 this._row(t('properties.lens.rays'), rays),
                 this._rangeRow(t('properties.lens.rotation'), lens.glare.rotation, 0, 180, 1, set('glare', t('properties.lens.undo.glareRotation'), 'rotation', 'glare-rotation')),
                 th,

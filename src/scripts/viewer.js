@@ -470,6 +470,7 @@ const environment = {
     // ground shadow disc – "size"/"softness" in the panel
     groundRadius: 3,     // soft edge of the ground shadow: ends at this distance from the centre (× model size)
     groundSoftness: 0.6, // share of the radius used for the transition (0 = hard edge)
+    groundBounce: 1,     // colour bleeding: light of the model onto the ground (HQ only), 0 = off, 1 = matte ground
     // ground reflection + bad weather (ground-reflection.js, path tracer only) – on the same disc, also without the shadow
     reflection: false,
     reflectionStrength: 0.5,
@@ -579,6 +580,7 @@ const environment = {
         const groundWas = ground.enabled;
         ground.enabled = this.on && (this.ground || this.reflection || this.wet);
         ground.shadow = this.ground;
+        ground.bounce = this.groundBounce;
         GROUND_SURFACE.params.value.set(this.reflection ? this.reflectionStrength : 0, this.reflectionBlur, this.wet ? 1 : 0, this.puddles);
         GROUND_SURFACE.params2.value.set(Math.max(this.puddleSize * this.modelSize, 1e-6), this.centerX, this.centerZ, showHdri ? 1 : 0);
         // ground disc: ring spacing relative to the model size (pure tessellation, no projection any more)
@@ -1609,6 +1611,7 @@ function updateSceneExtent() {
     const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
     const sceneSize = Math.max(size.x, size.y, size.z);
     environment.modelSize = sceneSize;
+    pathTracing.setSceneSize(sceneSize);   // glass shadow fringe fades relative to it
     box.getBoundingSphere(shaftBounds);
     lens.volume.markDirty();
     environment.centerX = center.x;
@@ -3618,6 +3621,16 @@ function setupGUI() {
         pt.range(t('setup.resolution'), () => pathTracing.renderScale, v => { pathTracing.renderScale = v; }, 0.25, 1, 0.05);
         pt.range(t('setup.maxSamples'), () => pathTracing.maxSamples, v => { pathTracing.maxSamples = v; }, 1, 256, 1);
         pt.range(t('setup.glossyFilter'), () => pathTracing.filterGlossyFactor, v => { pathTracing.filterGlossyFactor = v; }, 0, 1, 0.01);
+        // shadows of glass (glass-shadow.js): transparent with an optional colour fringe, or opaque
+        const fringeControls = [];
+        pt.select(t('setup.glassShadow'), [
+            { label: t('setup.glassShadowTransparent'), value: 'transparent' },
+            { label: t('setup.glassShadowOpaque'), value: 'opaque' },
+        ], () => pathTracing.glassShadow.mode, v => { pathTracing.setGlassShadow({ mode: v }); fringeControls.forEach(c => c.enable(v === 'transparent')); });
+        fringeControls.push(
+            pt.range(t('setup.glassFringe'), () => pathTracing.glassShadow.fringe, v => pathTracing.setGlassShadow({ fringe: v }), 0, 1, 0.01),
+            pt.range(t('setup.glassFringeRange'), () => pathTracing.glassShadow.range, v => pathTracing.setGlassShadow({ range: v }), 0.05, 2, 0.05));
+        fringeControls.forEach(c => c.enable(pathTracing.glassShadow.mode === 'transparent'));
         pt.toggle(t('setup.denoise'), () => pathTracing.denoiseEnabled, v => pathTracing.setDenoise(v));
         pt.toggle(t('setup.upscale'), () => pathTracing.upscaleEnabled, v => pathTracing.setUpscale(v));
         pt.range(t('setup.fsrSharpness'), () => pathTracing.sharpness, v => { pathTracing.sharpness = v; }, 0, 2, 0.01);

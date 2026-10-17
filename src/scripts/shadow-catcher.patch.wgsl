@@ -73,24 +73,17 @@
 
 								}
 
-								var scLit = select( 0.0, 1.0, scWeight < 0.0 );
+								var scLit = vec3f( select( 0.0, 1.0, scWeight < 0.0 ) );
 								if ( scWeight > 0.0 ) {
 
-									var scRay: ${ rayStruct };
-									scRay.origin = ${ offsetRayOriginFunc }( scPos, scDir, scUp );
-									scRay.direction = scDir;
-									scRay.maxDist = scDist;
-									var scHit: ${ raycastOutput };
-									if ( ! ${ raycastFirstHitFn }( scRay, &scHit ) ) {
-
-										scLit = scWeight;
-
-									}
+									// shadow ray – through glass when glass shadows are transparent (glass-shadow.js)
+									//@glass-shadow scPos | scDir | scDist | scUp | bounce == 0u
+									scLit = gsShadow * scWeight;
 
 								}
 
 								// strength 0…1
-								let scShadow = mix( 1.0, scLit, scParams.z );
+								let scShadow = mix( vec3f( 1.0 ), scLit, scParams.z );
 								let scLookup = ${ __DOME }( ray.origin, ray.direction, ${ rand1 }( 130u ) );
 								// ground reflection / bad weather (ground-reflection.js): reflection share r, roughness,
 								// darkening d – background × shadow × (1 − r) × d, the rest continues as reflection ray
@@ -108,13 +101,20 @@
 									resultColor += vec4f( scBase * ( 1.0 - scSurf.x ), 0.0 );
 
 								}
-								if ( scSurf.x > 1e-3 ) {
+								// what continues from the ground: the reflection ray and/or a bounce ray for the light the model
+								// throws onto the ground – with both, one of them per sample (each × 2)
+								let scBounceOn = ${ __SC.bounce }.x > 0.0 && ${ __SC.bounce }.y > 0.0;
+								let scMirrorOn = scSurf.x > 1e-3;
+								let scBoth = scBounceOn && scMirrorOn;
+								let scPick = select( 0.0, ${ rand1 }( 151u ), scBoth );
+								let scScale = select( 1.0, 2.0, scBoth );
+								if ( scMirrorOn && ( ! scBoth || scPick < 0.5 ) ) {
 
 									// only the model is mirrored (HDRI background hidden): count the ground as if the
 									// reflection ray misses; if it hits something, that is taken back (top of the loop)
 									if ( scSurf.w < 0.5 ) {
 
-										scMirrorBg = scBase * scSurf.x;
+										scMirrorBg = scBase * scSurf.x * scScale;
 										resultColor += vec4f( scMirrorBg, 0.0 );
 										scMirrorPending = true;
 
@@ -137,7 +137,7 @@
 										scRefl = normalize( vec3f( scRefl.x, abs( scRefl.y ) + 1e-3, scRefl.z ) );
 
 									}
-									throughputColor *= scSurf.x;
+									throughputColor *= scSurf.x * scScale;
 									ray.origin = ${ offsetRayOriginFunc }( scPos, scRefl, scUp );
 									ray.direction = scRefl;
 									ray.maxDist = 0.0;
@@ -145,6 +145,43 @@
 									isFullyTransmissive = false;
 									${ rngNextBounce }();
 									continue;
+
+								}
+								if ( scBounceOn ) {
+
+									// colour bleeding: a cosine-distributed ray upwards; only if it hits the model does the
+									// path continue there (material, lights, further bounces – also back onto the ground, every
+									// time a path meets it, like real geometry). Albedo = HDRI floor colour here (also with the
+									// HDRI background hidden) × π / E (E = unshadowed irradiance, luminance): the ground acts as
+									// a matte surface in the colour of the HDRI floor, ≤ 0.9 (no gain over the bounces); the
+									// strength slider only scales the bounce seen by the camera. Sky and lights seen from the
+									// ground are already in the shadow ratio (that ray simply ends).
+									let scC = ${ rand2 }( 152u );
+									let scS = sqrt( scC.x );
+									let scPhiB = 6.283185307 * scC.y;
+									let scDirB = vec3f( scS * cos( scPhiB ), sqrt( max( 1.0 - scC.x, 0.0 ) ), scS * sin( scPhiB ) );
+									var scRayB: ${ rayStruct };
+									scRayB.origin = ${ offsetRayOriginFunc }( scPos, scDirB, scUp );
+									scRayB.direction = scDirB;
+									scRayB.maxDist = 0.0;
+									var scHitB: ${ raycastOutput };
+									if ( ${ raycastFirstHitFn }( scRayB, &scHitB ) && ( *materials )[ transforms[ scHitB.objectIndex ].materialIndex ].matte == 0 ) {
+
+										let scAlbedo = min( ${ sampleEnvColor }( scLookup ).rgb * ${ __SC.bounce }.y, vec3f( 0.9 ) );
+										let scGain = select( 1.0, ${ __SC.bounce }.x, bounce == 0u );
+										throughputColor *= scAlbedo * ( scGain * scSurf.z * ( 1.0 - scSurf.x ) * scScale );
+										// a rough bounce: glass after it is a caustic path (glass-shadow.js, rindr-glass-shadow)
+										gsRough = true;
+										gsCaustic = false;
+										ray.origin = scRayB.origin;
+										ray.direction = scDirB;
+										ray.maxDist = 0.0;
+										bsdfPdf = max( scDirB.y, 1e-4 ) / 3.14159265;
+										isFullyTransmissive = false;
+										${ rngNextBounce }();
+										continue;
+
+									}
 
 								}
 								break;

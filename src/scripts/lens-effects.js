@@ -15,8 +15,14 @@
 //   values above 1 (highlights, emissive surfaces, sun in the HDRI) bloom.
 // - Glare (streaks, star rays like in KeyShot): filter out bright spots (threshold) at ¼ resolution
 //   (4 bilinear taps = 4×4 average, so small highlights are not lost),
-//   then per ray 3 "Kawase streak" passes (4 taps along the direction, spacing 1/4/16 texels,
-//   weight = decay^distance) and additively into an accumulation target. Length = decay.
+//   then per ray a short box and one long pass (64 taps along the direction, additive into an accumulation target)
+//   with an rgb weight per tap, computed on the CPU when a setting changes (_glareKernel): white profile = the former
+//   chain of "Kawase streak" passes (4 taps at spacing 1/4/16, up to length 2 a 4th at 64 faded in), each
+//   exp(−(distance / reach)^q), convolved; length 0…1 = reach ~5…67 texels (decay 0.8…0.985 per texel), up to 2
+//   three times that; pointedness = q (0.5 → q 1 = the former exponential decay; higher: bright core, quickly
+//   thinning long tail; lower: an even bar). Colour fringe = diffraction rings on the profile and a copy per
+//   wavelength (31 from 400 to 700 nm, CIE fit → rgb) stretched ∝ λ → the rings fan out into spectra that grow
+//   outwards (like the flare's halo). Before (Oct. 2026): red reached farther, blue shorter – only warmer outwards.
 // - Light shafts ("god rays") with real volume: volume-shafts.js – the air around the model is ray-marched
 //   against a depth map from the sun (brightest point of the HDRI): beams and shadow wedges from the 3D
 //   geometry, also with the sun outside the picture. Replaced the screen-space version (bright parts of the
@@ -44,7 +50,7 @@
 // - Exports larger than the screen (setPixelScale): glare/shafts/flare targets keep their size relative to
 //   the screen version and bloom its resolution scale → effects look the same, only the image is sharper.
 import * as THREE from 'three/webgpu';
-import { Fn, texture, uniform, uv, vec2, vec3, vec4, float, dot, max, min, pow, length, mix, exp, smoothstep, cos, normalize } from 'three/tsl';
+import { Fn, texture, uniform, uniformArray, uv, vec2, vec3, vec4, float, dot, max, min, pow, length, mix, exp, smoothstep, cos, normalize } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { VolumeShafts } from './volume-shafts.js';
 
@@ -59,6 +65,23 @@ const WEIGHTS = (() => {
     }
     const sum = [0, 1, 2].map(k => ws.reduce((s, w) => s + w[k], 0));
     return ws.map(w => w.map((v, k) => v / sum[k]));
+})();
+
+// glare: taps of the long streak pass and the spectrum for its colour fringe (wavelength nm, linear rgb)
+const GLARE_TAPS = 64;
+const GLARE_DISPERSION = 1.5;   // stretch per wavelength × this (1 = ∝ λ like real diffraction; more = earlier rainbows)
+const GLARE_SPECTRUM = (() => {
+    // CIE 1931 colour matching functions, multi-lobe fit (Wyman, Sloan, Shirley 2013) → linear Rec. 709, ≥ 0
+    const lobe = (l, mu, s1, s2) => { const t = (l - mu) * (l < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+    const out = [];
+    for (let l = 400; l <= 700; l += 10) {
+        const x = 1.056 * lobe(l, 599.8, 0.0264, 0.0323) + 0.362 * lobe(l, 442, 0.0624, 0.0374) - 0.065 * lobe(l, 501.1, 0.049, 0.0382);
+        const y = 0.821 * lobe(l, 568.8, 0.0213, 0.0247) + 0.286 * lobe(l, 530.9, 0.0613, 0.0322);
+        const z = 1.217 * lobe(l, 437, 0.0845, 0.0278) + 0.681 * lobe(l, 459, 0.0385, 0.0725);
+        out.push([l, [3.2404542 * x - 1.5371385 * y - 0.4985314 * z, -0.969266 * x + 1.8760108 * y + 0.041556 * z,
+            0.0556434 * x - 0.2040259 * y + 1.0572252 * z].map(v => Math.max(v, 0))]);
+    }
+    return out;
 })();
 
 export const NEUTRAL_LOOK = { temperature: 6500, tint: 0, contrast: 1, saturation: 1 };
@@ -88,7 +111,7 @@ export class LensEffects {
         this.renderer = renderer;
         this.bloom = { enabled: false, strength: 0.6, radius: 0.5, threshold: 1 };
         this.chromatic = { enabled: false, strength: 0.5 };
-        this.glare = { enabled: false, strength: 0.3, length: 0.4, rays: 6, rotation: 15, threshold: 4 };
+        this.glare = { enabled: false, strength: 0.3, length: 0.4, rays: 6, rotation: 15, threshold: 4, sharpness: 0.5, chromatic: 0 };
         this.shafts = { enabled: false, strength: 0.6, length: 0.5, focus: 0.6 };
         this.flare = { enabled: false, strength: 0.6, spacing: 0.35, halo: 0.45, chromatic: 0.5, softness: 0.5 };
         this.look = { ...NEUTRAL_LOOK };
@@ -336,7 +359,7 @@ export class LensEffects {
 
     _setupGlare() {
         const rt = () => new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-        const g = this._glare = { bright: rt(), a: rt(), b: rt(), accum: rt(), quad: new THREE.QuadMesh() };
+        const g = this._glare = { bright: rt(), a: rt(), accum: rt(), quad: new THREE.QuadMesh() };
         g.quad.name = 'Glare';
 
         // bright spots: 4 bilinear taps at the corners of a 4×4 block
@@ -355,33 +378,39 @@ export class LensEffects {
             return vec4(c.mul(k), 1);
         })();
 
-        // streak pass: 4 taps along dir at spacing step, weight att^(step·i), normalised
+        // 1. short box along the ray (4 taps across one tap spacing of the long pass – no gaps between its taps)
         g.source = texture(null);
         g.dir = uniform(new THREE.Vector2());   // direction in uv per texel (¼ resolution)
-        g.step = uniform(1);
-        g.att = uniform(0.9);
-        const streak = Fn(() => {
+        g.spacing = uniform(1);                 // texels between the taps of the long pass
+        g.boxMaterial = new THREE.NodeMaterial();
+        g.boxMaterial.fragmentNode = Fn(() => {
             const p = uv();
-            const sum = vec3(0).toVar(), wsum = float(0).toVar();
-            for (let i = 0; i < 4; i++) {
-                const w = pow(g.att, g.step.mul(i));
-                sum.addAssign(g.source.sample(p.add(g.dir.mul(g.step.mul(i)))).rgb.mul(w));
-                wsum.addAssign(w);
-            }
-            return vec4(sum.div(wsum), 1);
+            const sum = vec3(0).toVar();
+            for (let i = 0; i < 4; i++) sum.addAssign(g.source.sample(p.add(g.dir.mul(g.spacing.mul(i / 4)))).rgb.mul(0.25));
+            return vec4(sum, 1);
         })();
-        g.streakMaterial = new THREE.NodeMaterial();
-        g.streakMaterial.fragmentNode = streak;
-        g.addMaterial = new THREE.NodeMaterial();   // last pass: additive into the accumulation target
-        g.addMaterial.fragmentNode = streak;
-        g.addMaterial.blending = THREE.AdditiveBlending;
-        g.addMaterial.transparent = true;
+        // 2. long pass: GLARE_TAPS taps along the ray, rgb weight per tap (_glareKernel: profile, spectrum),
+        //    additive into the accumulation target
+        g.weights = Array.from({ length: GLARE_TAPS }, () => new THREE.Vector4());
+        const weights = uniformArray(g.weights, 'vec4');
+        g.longMaterial = new THREE.NodeMaterial();
+        g.longMaterial.fragmentNode = Fn(() => {
+            const p = uv();
+            const sum = vec3(0).toVar();
+            for (let i = 0; i < GLARE_TAPS; i++) {
+                sum.addAssign(g.source.sample(p.add(g.dir.mul(g.spacing.mul(i)))).rgb.mul(weights.element(i).xyz));
+            }
+            return vec4(sum, 1);
+        })();
+        g.longMaterial.blending = THREE.AdditiveBlending;
+        g.longMaterial.transparent = true;
+        g.kernelKey = '';
     }
 
     _renderGlare() {
         const r = this.renderer, g = this._glare, cfg = this.glare;
         const d = 4 * this.pixelScale, w = Math.max(1, Math.floor(this.target.width / d)), h = Math.max(1, Math.floor(this.target.height / d));
-        for (const t of [g.bright, g.a, g.b, g.accum]) if (t.width !== w || t.height !== h) t.setSize(w, h);
+        for (const t of [g.bright, g.a, g.accum]) if (t.width !== w || t.height !== h) t.setSize(w, h);
         const autoClear = r.autoClear;
         const clearColor = r.getClearColor(new THREE.Color()), clearAlpha = r.getClearAlpha();
         r.autoClear = true;
@@ -392,22 +421,82 @@ export class LensEffects {
         draw(g.bright, g.brightMaterial);
         r.setRenderTarget(g.accum);
         r.clear();
-        r.autoClear = true;
-        // length 0…1 → decay per texel 0.8…0.985 (reach ~5…60 texels at ¼ resolution)
-        g.att.value = 0.8 + 0.185 * Math.min(Math.max(cfg.length, 0), 1);
+        this._glareKernel();
         const rays = Math.max(2, Math.round(cfg.rays));
         for (let k = 0; k < rays; k++) {
             const a = THREE.MathUtils.degToRad(cfg.rotation) + k * 2 * Math.PI / rays;
             g.dir.value.set(Math.cos(a) / w, Math.sin(a) / h);
-            g.source.value = g.bright.texture; g.step.value = 1; draw(g.a, g.streakMaterial);
-            g.source.value = g.a.texture; g.step.value = 4; draw(g.b, g.streakMaterial);
-            g.source.value = g.b.texture; g.step.value = 16;
-            r.autoClear = false;
-            draw(g.accum, g.addMaterial);
+            g.source.value = g.bright.texture;
             r.autoClear = true;
+            draw(g.a, g.boxMaterial);
+            g.source.value = g.a.texture;
+            r.autoClear = false;
+            draw(g.accum, g.longMaterial);
         }
         r.setClearColor(clearColor, clearAlpha);
         r.autoClear = autoClear;
+    }
+
+    /**
+     * Weights of the long pass (only when length/pointedness/fringe change). White profile = the former chain of
+     * "Kawase streak" passes (4 taps at spacing 1/4/16(/64), each exp(−(d / reach)^q), normalised) convolved on the
+     * CPU – the look of colour fringe 0 is unchanged. Colour fringe c: the profile gets diffraction rings (cos²,
+     * period ∝ reach, depth ∝ c) and every wavelength its own copy, stretched ∝ λ (400 … 700 nm → 1 ∓ 0.27 c around
+     * 550 nm, × GLARE_DISPERSION) – the rings fan out into spectra that grow outwards, like the halo of the lens flare. Spectrum → rgb:
+     * CIE 1931 fit (Wyman, Sloan, Shirley 2013) in linear Rec. 709; each channel normalised to sum 1 → white stays
+     * white in total.
+     */
+    _glareKernel() {
+        const g = this._glare, cfg = this.glare;
+        const length = Math.min(Math.max(cfg.length, 0), 2);
+        const sharpness = Math.min(Math.max(cfg.sharpness ?? 0.5, 0), 1);
+        const c = Math.min(Math.max(cfg.chromatic ?? 0, 0), 1);
+        const key = `${length}|${sharpness}|${c}`;
+        if (key === g.kernelKey) return;
+        g.kernelKey = key;
+        // length 0…1 → decay per texel 0.8…0.985 (reach ~5…67 texels at ¼ resolution), up to 2: three times that
+        let reach = -1 / Math.log(0.8 + 0.185 * Math.min(length, 1));
+        if (length > 1) reach *= 3 ** (length - 1);
+        const q = 2 ** (1 - 2 * sharpness);
+        const steps = length > 1 ? [1, 4, 16, 64] : [1, 4, 16];
+        let profile = [1];
+        for (const step of steps) {
+            const fade = step === 64 ? length - 1 : 1;
+            const taps = [0, 1, 2, 3].map(i => Math.exp(-((step * i / Math.max(reach, 1e-3)) ** q)) * fade ** i);
+            const sum = taps.reduce((a, b) => a + b, 0);
+            const next = new Array(profile.length + 3 * step).fill(0);
+            profile.forEach((v, x) => taps.forEach((t, i) => { next[x + step * i] += v * t / sum; }));
+            profile = next;
+        }
+        const extent = profile.length - 1;
+        const at = x => {   // white profile between the integer texels, with the rings
+            if (x < 0 || x >= extent) return 0;
+            const i = Math.floor(x), f = x - i;
+            const v = profile[i] * (1 - f) + profile[i + 1] * f;
+            const ring = Math.cos(Math.PI * x / Math.max(reach * 0.4, 2)) ** 2;
+            return v * (1 - 0.7 * c + 0.7 * c * ring);
+        };
+        const stretch = 1 + GLARE_DISPERSION * c * 150 / 550;
+        g.spacing.value = Math.max(1, extent * stretch / (GLARE_TAPS - 1));
+        const sp = g.spacing.value;
+        const sums = [0, 0, 0];
+        g.weights.forEach((wt, i) => {
+            // mean over the tap's span (the box pass fills it)
+            const span = f => (f(i * sp) + f((i + 0.25) * sp) + f((i + 0.5) * sp) + f((i + 0.75) * sp)) / 4;
+            if (c === 0) {
+                const v = span(at);
+                wt.set(v, v, v, 0);
+            } else {
+                wt.set(0, 0, 0, 0);
+                for (const [lambda, rgb] of GLARE_SPECTRUM) {
+                    const k = 1 + GLARE_DISPERSION * c * (lambda - 550) / 550;
+                    const v = span(x => at(x / k) / k);
+                    wt.x += v * rgb[0]; wt.y += v * rgb[1]; wt.z += v * rgb[2];
+                }
+            }
+            sums[0] += wt.x; sums[1] += wt.y; sums[2] += wt.z;
+        });
+        for (const wt of g.weights) wt.set(wt.x / Math.max(sums[0], 1e-9), wt.y / Math.max(sums[1], 1e-9), wt.z / Math.max(sums[2], 1e-9), 0);
     }
 
     // --- Light shafts ---

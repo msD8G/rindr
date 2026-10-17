@@ -19,11 +19,13 @@ import { MotionDenoiser } from './motion-denoise.js';
 import { ImageFade } from './image-fade.js';
 import { fisheyeParams } from './fisheye.js';
 import { PT_MOTION } from './pt-motion.js';
+import { GLASS_SHADOW } from './glass-shadow.js';
 import { t } from './i18n.js';
 import { debugLog } from './log.js';
 
 // environments up to this size get their importance-sampling table from the library directly (updateEnvironment)
 const SMALL_ENV_PIXELS = 512 * 512;
+const GLASS_FRINGE_SPREAD = 0.3;   // glass shadow colour fringe 1 = IOR ±15 % from red to blue (real glass ~1 %)
 // paths per dispatch while orbiting: the whole image in one tile (the GPU time is kept by the resolution, _adapt)
 const MOTION_FRAME_BUDGET = 2 ** 30;
 const _size = new Vector2();
@@ -83,6 +85,9 @@ export class PathTracingView {
         this.onRestart = null;          // called then (viewer: soft transition of the picture – the path tracer often
                                         // takes over a change a few frames later, e.g. a new HDRI after its table)
         // soft transition between the images (_fade): rest = share of the non-final image still shown once done
+        this.glassShadow = { ...PATHTRACING.glassShadow };   // shadows of glass (setGlassShadow, glass-shadow.js)
+        this.sceneSize = 1;             // size of the scene (viewer) – the fringe fades relative to it
+        this._applyGlassShadow();
         this._blend = { last: 0, frame: 0, view: new Matrix4(), proj: new Matrix4(), rest: 0, prepared: false };
     }
 
@@ -253,6 +258,25 @@ export class PathTracingView {
     setDenoise(enabled) {
         this.denoiseEnabled = enabled;
         this.pathTracer?.setDenoiser(enabled ? this.denoiser : null);
+    }
+
+    /** Shadows of glass: { mode: 'transparent' | 'opaque', fringe 0–1, range (share of the scene size) } */
+    setGlassShadow(options) {
+        Object.assign(this.glassShadow, options);
+        this._applyGlassShadow();
+        this.reset();
+    }
+
+    setSceneSize(size) {
+        this.sceneSize = size > 0 ? size : 1;
+        this._applyGlassShadow();
+    }
+
+    _applyGlassShadow() {
+        const g = this.glassShadow;
+        GLASS_SHADOW.mode.value = g.mode === 'opaque' ? 0 : 1;
+        GLASS_SHADOW.fringe.value = Math.max(g.fringe, 0) * GLASS_FRINGE_SPREAD;
+        GLASS_SHADOW.falloff.value = Math.max(g.range, 1e-3) * this.sceneSize;
     }
 
     setUpscale(enabled) {

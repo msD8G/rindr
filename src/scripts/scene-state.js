@@ -7,7 +7,7 @@
 //   camera         position, target, focal length, depth of field (aperture, focus plane, bokeh)
 //   environment    HDRI file (public/hdr), intensity, rotation, background, ground projection
 //   lights         per light: position, intensity, colour, visible
-//   pathtracing    bounces, resolution, max. samples, glossy filter, denoise, upscaling
+//   pathtracing    bounces, resolution, max. samples, glossy filter, denoise, upscaling, glass shadows
 //   slicer         section plane
 //   models         (version 2) every loaded model: file (name, type, size), placement, translations/rotations,
 //                  hidden/deleted nodes, material assignments – keys without the runtime prefix of additional
@@ -163,7 +163,7 @@ export function captureState(ctx) {
         environment: {
             on: env.on, hdri: env.hdri || null,
             intensity: env.intensity, lightBoost: env.lightBoost, rotation: +THREE.MathUtils.radToDeg(scene.environmentRotation.y).toFixed(3),
-            background: env.background, ground: env.ground, groundRadius: env.groundRadius, groundSoftness: env.groundSoftness, dome: env.dome, domeShift: env.domeShift, groundHeight: env.groundHeight, domeRadius: env.domeRadius, domeBlend: env.domeBlend,
+            background: env.background, ground: env.ground, groundRadius: env.groundRadius, groundSoftness: env.groundSoftness, groundBounce: env.groundBounce, dome: env.dome, domeShift: env.domeShift, groundHeight: env.groundHeight, domeRadius: env.domeRadius, domeBlend: env.domeBlend,
             // ground reflection + bad weather (ground-reflection.js)
             reflection: env.reflection, reflectionStrength: env.reflectionStrength, reflectionBlur: env.reflectionBlur,
             wet: env.wet, puddles: env.puddles, puddleSize: env.puddleSize,
@@ -182,6 +182,7 @@ export function captureState(ctx) {
             filterGlossyFactor: pt.filterGlossyFactor, denoise: pt.denoiseEnabled, upscale: pt.upscaleEnabled,
             sharpness: pt.sharpness ?? 1,
             motion: { ...pt.motion },
+            glassShadow: { ...pt.glassShadow },
         },
         slicer: {
             enabled: slicer.enabled, flipped: slicer.flipped,
@@ -289,6 +290,7 @@ export async function applyState(ctx, state) {
         if (p.denoise != null) pt.setDenoise(p.denoise);
         if (p.upscale != null) pt.setUpscale(p.upscale);
         if (p.sharpness != null) pt.sharpness = p.sharpness;   // stored until the path tracer is loaded
+        if (p.glassShadow) pt.setGlassShadow(p.glassShadow);
         if (p.motion) {
             const { kuwahara, ...motion } = p.motion;   // older states: kuwahara on/off instead of filter
             if (kuwahara != null && motion.filter == null) motion.filter = kuwahara ? 'kuwahara' : 'off';
@@ -320,6 +322,7 @@ export async function applyState(ctx, state) {
         env.ground = !!e.ground;
         if (e.groundRadius != null) env.groundRadius = e.groundRadius;
         if (e.groundSoftness != null) env.groundSoftness = e.groundSoftness;
+        env.groundBounce = e.groundBounce ?? 1;
         env.reflection = !!e.reflection;
         env.wet = !!e.wet;
         for (const key of ['reflectionStrength', 'reflectionBlur', 'puddles', 'puddleSize']) if (e[key] != null) env[key] = e[key];
